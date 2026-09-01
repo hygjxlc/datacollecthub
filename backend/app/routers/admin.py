@@ -4,9 +4,11 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.deps import require_admin
 from app.models import User
-from app.schemas.admin import (OrgCreate, OrgOut, OrgUpdate, ResetPasswordOut,
-                               UserCreate, UserOut, UserUpdate)
+from app.schemas.admin import (BatchNoRuleIn, BatchNoRuleOut, OrgCreate, OrgOut,
+                               OrgUpdate, ResetPasswordOut, UserCreate, UserOut,
+                               UserUpdate)
 from app.services.admin_service import AdminService
+from app.services.batch_no_service import BatchNoService
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -76,3 +78,20 @@ def list_audit_logs(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1,
                     source: str | None = None, action: str | None = None,
                     _: User = Depends(require_admin), db: Session = Depends(get_db)):
     return AdminService(db).list_audit_logs(page, page_size, source, action)
+
+
+# ---------- 批次编号规则（全局单行，admin 配置） ----------
+
+@router.get("/batch-no-rule", response_model=BatchNoRuleOut)
+def get_batch_no_rule(_: User = Depends(require_admin), db: Session = Depends(get_db)):
+    rule = BatchNoService(db).get_rule()
+    return (BatchNoRuleOut(template=rule.template, updated_by=rule.updated_by,
+                           updated_at=rule.updated_at) if rule else BatchNoRuleOut())
+
+
+@router.put("/batch-no-rule", response_model=BatchNoRuleOut)
+def put_batch_no_rule(body: BatchNoRuleIn, user: User = Depends(require_admin),
+                      db: Session = Depends(get_db)):
+    rule = BatchNoService(db).save_rule(body.template, user)
+    return BatchNoRuleOut(template=rule.template, updated_by=rule.updated_by,
+                          updated_at=rule.updated_at)

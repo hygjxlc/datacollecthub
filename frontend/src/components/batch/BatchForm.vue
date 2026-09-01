@@ -1,7 +1,8 @@
 <script setup>
-import { reactive } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { EQUIPMENT_STATE_TYPES, LICENSES, SENSITIVITIES } from "../../stores/dict";
+import api from "../../api";
 
 // 批次说明表表单（《数据收集要求清单》6.1 字段）
 const props = defineProps({
@@ -39,8 +40,18 @@ function removeExtra(index) {
   extrasList.splice(index, 1);
 }
 
+// 批次编号是否由系统按规则自动生成（管理员配置后前端只读）
+const autoBatchNo = ref(false);
+onMounted(async () => {
+  try {
+    const { data } = await api.get("/batch-no-rule");
+    autoBatchNo.value = !!data.template;
+  } catch { /* 读取失败保持手动模式（拦截器已提示） */ }
+});
+
 function submit() {
-  if (!form.batch_no || !form.device_no) return;
+  if (!autoBatchNo.value && !form.batch_no) return;
+  if (!form.device_no) return;
   if (props.requireStateType && !form.equipment_state_type) {
     ElMessage.warning("请选择 数据对应设备:状态类型");
     return;
@@ -58,6 +69,7 @@ function submit() {
     extras[k] = row.value;
   }
   payload.extras = Object.keys(extras).length ? extras : null;
+  if (autoBatchNo.value) delete payload.batch_no;
   emit("update:modelValue", payload);
   emit("submit", payload);
 }
@@ -67,8 +79,9 @@ function submit() {
   <el-form label-width="130px" @submit.prevent="submit">
     <el-row :gutter="16">
       <el-col :span="12">
-        <el-form-item label="批次编号" required>
-          <el-input v-model="form.batch_no" name="batch_no" placeholder="如 B2025-001" />
+        <el-form-item label="批次编号" :required="!autoBatchNo">
+          <el-input v-model="form.batch_no" name="batch_no" :disabled="autoBatchNo"
+                    :placeholder="autoBatchNo ? '由系统按编号规则自动生成' : '如 B2025-001'" />
         </el-form-item>
       </el-col>
       <el-col :span="12">

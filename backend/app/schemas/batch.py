@@ -4,7 +4,7 @@ from app.schemas.enums import EquipmentStateType
 
 
 class BatchCreate(BaseModel):
-    batch_no: str
+    batch_no: str | None = None
     device_no: str
     device_model: str | None = None
     station: str | None = None

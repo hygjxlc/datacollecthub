@@ -71,3 +71,13 @@ class AuditLogOut(BaseModel):
     source: str
     params_summary: str | None = None
     created_at: str
+
+
+class BatchNoRuleIn(BaseModel):
+    template: str
+
+
+class BatchNoRuleOut(BaseModel):
+    template: str | None = None
+    updated_by: str | None = None
+    updated_at: str | None = None

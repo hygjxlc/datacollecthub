@@ -22,6 +22,7 @@ const menus = computed(() => {
     items.push(
       { path: "/admin/organizations", label: "单位管理" },
       { path: "/admin/users", label: "用户管理" },
+      { path: "/admin/batch-no-rule", label: "批次编号规则" },
       { path: "/audit", label: "审计日志" }
     );
   }

@@ -19,3 +19,7 @@ def bad_request(detail: str) -> HTTPException:
 
 def unprocessable(detail: str) -> HTTPException:
     return HTTPException(status_code=422, detail=detail)
+
+
+def conflict(detail: str = "冲突") -> HTTPException:
+    return HTTPException(status_code=409, detail=detail)

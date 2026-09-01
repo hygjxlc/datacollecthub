@@ -4,7 +4,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import bad_request, not_found, unprocessable
+from app.core.errors import bad_request, conflict, not_found, unprocessable
 from app.models import Batch, DataFile
 from app.repositories.base import assert_org_visible, assert_owner, filter_by_org
 from app.schemas.batch import BatchCreate, BatchOut, BatchUpdate
@@ -101,28 +101,45 @@ class BatchService:
         out.modalities = sort_modalities(mods)
         return out
 
-    def create_batch(self, body: BatchCreate, user) -> BatchOut:
+    def _manual_batch_no(self, batch_no: str | None) -> str:
+        if not batch_no:
+            raise unprocessable("批次编号必填（管理员未配置自动生成规则）")
         if self.db.execute(select(Batch).where(
-                Batch.batch_no == body.batch_no)).scalar_one_or_none():
+                Batch.batch_no == batch_no)).scalar_one_or_none():
             raise unprocessable("批次编号已存在")
+        return batch_no
+
+    def create_batch(self, body: BatchCreate, user) -> BatchOut:
+        from sqlalchemy.exc import IntegrityError
+
+        from app.services.batch_no_service import BatchNoService
+        rule = BatchNoService(self.db).get_rule()
         extras = validate_extras(body.extras)
-        now = utcnow()
-        batch = Batch(id=str(uuid.uuid4()), batch_no=body.batch_no,
-                      device_no=body.device_no, device_model=body.device_model,
-                      station=body.station, license=body.license,
-                      sensitivity=body.sensitivity, owner_contact=body.owner_contact,
-                      is_synthetic=body.is_synthetic,
-                      operating_condition=body.operating_condition,
-                      weather=body.weather,
-                      equipment_state_type=body.equipment_state_type,
-                      extras=extras,
-                      organization_id=user.organization_id, creator_id=user.id,
-                      created_at=now, updated_at=now)
-        self.db.add(batch)
-        write_audit(self.db, user=user, action="create", entity_type="batch",
-                    entity_id=batch.id)
-        self.db.commit()
-        return BatchOut.model_validate(batch)
+        for _ in range(3):
+            try:
+                batch_no = (BatchNoService(self.db).generate(rule.template, body.device_no)
+                            if rule is not None else self._manual_batch_no(body.batch_no))
+                now = utcnow()
+                batch = Batch(id=str(uuid.uuid4()), batch_no=batch_no,
+                              device_no=body.device_no, device_model=body.device_model,
+                              station=body.station, license=body.license,
+                              sensitivity=body.sensitivity,
+                              owner_contact=body.owner_contact,
+                              is_synthetic=body.is_synthetic,
+                              operating_condition=body.operating_condition,
+                              weather=body.weather,
+                              equipment_state_type=body.equipment_state_type,
+                              extras=extras,
+                              organization_id=user.organization_id, creator_id=user.id,
+                              created_at=now, updated_at=now)
+                self.db.add(batch)
+                write_audit(self.db, user=user, action="create", entity_type="batch",
+                            entity_id=batch.id)
+                self.db.commit()
+                return BatchOut.model_validate(batch)
+            except IntegrityError:
+                self.db.rollback()
+        raise conflict("批次编号生成冲突，请重试")
 
     def update_batch(self, batch_id: str, body: BatchUpdate, user) -> BatchOut:
         batch = self.get_batch(batch_id, user)
