@@ -13,7 +13,8 @@ def test_put_rule_non_admin_403(client, user_token):
 
 def test_put_rule_invalid_template_422(client, admin_token):
     for bad in ["B-{YYYY}", "B-{UNKNOWN}-{SEQ:3}", "B-{SEQ}-{YYYY}",
-                "B-{YYYY}-{SEQ:0}", "B-{YYYY}-{SEQ:12}"]:
+                "B-{YYYY}-{SEQ:0}", "B-{YYYY}-{SEQ:12}",
+                "B-{SEQ:3}-{YYYY}"]:
         r = client.put("/api/v1/admin/batch-no-rule", json={"template": bad},
                        headers=auth(admin_token))
         assert r.status_code == 422, bad
@@ -27,6 +28,18 @@ def test_put_and_get_rule(client, admin_token, user_token):
     assert r2.json()["template"] == RULE["template"]
     r3 = client.get("/api/v1/batch-no-rule", headers=auth(user_token))
     assert r3.json() == {"template": RULE["template"]}
+
+
+def test_put_rule_twice_updates_singleton(client, admin_token):
+    """二次 PUT 走 ON CONFLICT DO UPDATE 更新路径，仍保持单行。"""
+    r1 = client.put("/api/v1/admin/batch-no-rule",
+                    json={"template": "B-{YYYY}-{SEQ:3}"}, headers=auth(admin_token))
+    assert r1.status_code == 200
+    r2 = client.put("/api/v1/admin/batch-no-rule",
+                    json={"template": "C-{YY}-{SEQ:2}"}, headers=auth(admin_token))
+    assert r2.status_code == 200
+    r3 = client.get("/api/v1/admin/batch-no-rule", headers=auth(admin_token))
+    assert r3.json()["template"] == "C-{YY}-{SEQ:2}"
 
 
 def test_get_rule_unset_returns_null_template(client, user_token):
@@ -62,6 +75,29 @@ def test_seed_from_existing_batches(client, admin_token, user_token):
     r = client.post("/api/v1/batches", json={"device_no": "F01", **STATE},
                     headers=auth(user_token))
     assert r.json()["batch_no"] == f"B-{year}-006"
+
+
+def test_seed_from_existing_escapes_like_wildcards(client, db):
+    """counter_key 含 _ / % 时按字面前缀匹配，不被 LIKE 通配符误吞。"""
+    from app.models import Batch
+    from app.services.batch_no_service import BatchNoService
+
+    ts = "2026-09-01T00:00:00Z"
+    db.add_all([
+        Batch(id="b-esc-1", batch_no="B_2026_005", device_no="F01",
+              is_synthetic=0, created_at=ts, updated_at=ts),
+        Batch(id="b-esc-2", batch_no="B-2026-009", device_no="F01",
+              is_synthetic=0, created_at=ts, updated_at=ts),
+        Batch(id="b-esc-3", batch_no="B%2026_003", device_no="F01",
+              is_synthetic=0, created_at=ts, updated_at=ts),
+    ])
+    db.commit()
+
+    svc = BatchNoService(db)
+    # 下划线字面：若未转义，_ 会通配 "-"，导致 009 被误吞 → seed 变成 9
+    assert svc._seed_from_existing("B_2026_") == 5
+    # 百分号字面：若未转义，% 会通配任意串
+    assert svc._seed_from_existing("B%2026_") == 3
 
 
 def test_device_no_placeholder_independent_seq(client, admin_token, user_token):

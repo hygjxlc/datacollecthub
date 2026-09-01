@@ -97,10 +97,13 @@ class BatchNoService:
 
     def _seed_from_existing(self, counter_key: str) -> int:
         """存量批次中该前缀编号的最大序号（后缀需全为数字），无则 0。"""
+        # counter_key 可能含 _ / % / \ 等 LIKE 通配字符，需转义以保持 startswith 语义；
+        # 下方 batch_no[len(counter_key):] 切片仍使用原始 counter_key（batch_no 未转义）。
+        like_pattern = counter_key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         numbers: list[int] = []
         for (batch_no,) in self.db.execute(
                 select(Batch.batch_no).where(
-                    Batch.batch_no.like(f"{counter_key}%"))).all():
+                    Batch.batch_no.like(f"{like_pattern}%", escape="\\"))).all():
             suffix = batch_no[len(counter_key):]
             if suffix.isascii() and suffix.isdigit():
                 numbers.append(int(suffix))
