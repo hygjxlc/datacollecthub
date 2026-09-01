@@ -86,3 +86,37 @@ def test_render_and_counter_key_unit(db):
     tpl2 = "D-{DEVICE_NO}-{YY}-{SEQ:2}"
     assert svc.render(tpl2, device_no="F01", now=now, seq=3) == "D-F01-26-03"
     assert svc.counter_key(tpl2, device_no="F01", now=now) == "D-F01-26-"
+
+
+def test_counter_key_reset_dimensions(db):
+    """{YYYY}按年重置、{MM}按月重置、无日期永不重置（规格 3.2）。"""
+    from app.services.batch_no_service import BatchNoService
+
+    svc = BatchNoService(db)
+    jan = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    feb = datetime(2026, 2, 15, tzinfo=timezone.utc)
+    next_year = datetime(2027, 1, 15, tzinfo=timezone.utc)
+    # 按年：跨年 counter_key 变化，年内相同
+    y = "B-{YYYY}-{SEQ:3}"
+    assert svc.counter_key(y, device_no="F01", now=jan) == "B-2026-"
+    assert svc.counter_key(y, device_no="F01", now=next_year) == "B-2027-"
+    # 按月：跨月变化
+    m = "B-{MM}-{SEQ:3}"
+    assert svc.counter_key(m, device_no="F01", now=jan) == "B-01-"
+    assert svc.counter_key(m, device_no="F01", now=feb) == "B-02-"
+    # 无日期：恒定
+    n = "B-{SEQ:3}"
+    assert svc.counter_key(n, device_no="F01", now=jan) == "B-"
+    assert svc.counter_key(n, device_no="F01", now=next_year) == "B-"
+
+
+def test_next_seq_atomic_sequential(db):
+    """同一 counter_key 连续自增返回连续不重复值（含 INSERT ON CONFLICT 路径）。"""
+    from app.services.batch_no_service import BatchNoService
+
+    svc = BatchNoService(db)
+    values = [svc._next_seq("K-TEST-") for _ in range(3)]
+    assert values == [1, 2, 3]
+    # 第二次调用走 UPDATE 路径后仍连续
+    values2 = [svc._next_seq("K-TEST-") for _ in range(2)]
+    assert values2 == [4, 5]
