@@ -50,7 +50,8 @@ async function handleSubmit(payload) {
     <el-card class="card" v-loading="loading">
       <el-alert v-if="sourceLabel" type="info" show-icon :closable="false" class="copy-tip"
                 :title="`已从批次 ${sourceLabel} 复制（批次编号除外），请修改后提交`" />
-      <BatchForm v-if="!loading" :model-value="source || {}" @submit="handleSubmit">
+      <BatchForm v-if="!loading" :model-value="source || {}" require-state-type
+                 @submit="handleSubmit">
         <div class="footer">
           <el-button @click="router.push('/batches')">取消</el-button>
           <el-button type="primary" native-type="submit" :loading="saving">创建批次</el-button>

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import api from "../api";
 import { useBatchStore } from "../stores/batch";
+import { MODALITY_LABELS } from "../stores/dict";
 import PermissionWrapper from "../components/common/PermissionWrapper.vue";
 import BatchForm from "../components/batch/BatchForm.vue";
 import FileListTable from "../components/file/FileListTable.vue";
@@ -125,6 +126,17 @@ onMounted(load);
               测点字典 {{ ledger.points.length ? `✓(${ledger.points.length})` : "✗" }}
             </el-tag>
           </el-tooltip>
+        </el-descriptions-item>
+        <el-descriptions-item label="数据对应设备:状态类型">
+          {{ batch.equipment_state_type || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="涵盖模态数据">
+          <template v-if="batch.modalities?.length">
+            <el-tag v-for="m in batch.modalities" :key="m" size="small" style="margin-right: 4px">
+              {{ MODALITY_LABELS[m] || m }}
+            </el-tag>
+          </template>
+          <span v-else>-</span>
         </el-descriptions-item>
         <el-descriptions-item label="设备型号">{{ batch.device_model || "-" }}</el-descriptions-item>
         <el-descriptions-item label="所属场站">{{ batch.station || "-" }}</el-descriptions-item>

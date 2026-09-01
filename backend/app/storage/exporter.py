@@ -10,7 +10,8 @@ MODALITY_LABELS = {"SCADA": "工艺参数", "VIB": "振动信号", "AUD": "声�
                    "TXT": "文本", "RPT": "报表"}
 
 BATCH_HEADERS = ["批次编号", "设备/机组编号", "设备型号", "所属场站", "许可证",
-                 "敏感级别", "负责人及联系方式", "是否合成/仿真数据", "运行工况", "天气条件"]
+                 "敏感级别", "负责人及联系方式", "是否合成/仿真数据", "运行工况", "天气条件",
+                 "数据对应设备:状态类型"]
 
 FILE_HEADERS = ["文件名", "模态类型", "采集开始时间", "采集结束时间",
                 "采样周期", "数据量", "条数/时长"]
@@ -33,7 +34,8 @@ def build_excel(batch, files) -> bytes:
     ws1.append([batch.batch_no, batch.device_no, batch.device_model or "",
                 batch.station or "", batch.license or "", batch.sensitivity or "",
                 batch.owner_contact or "", "是" if batch.is_synthetic else "否",
-                batch.operating_condition or "", batch.weather or ""])
+                batch.operating_condition or "", batch.weather or "",
+                batch.equipment_state_type or ""])
     for cell in ws1[1]:
         cell.font = header_font
 

@@ -29,7 +29,7 @@ def create_batch(body: BatchCreate, user: User = Depends(get_current_user),
 @router.get("/{batch_id}", response_model=BatchOut)
 def get_batch(batch_id: str, user: User = Depends(get_current_user),
               db: Session = Depends(get_db)):
-    return BatchService(db).get_batch(batch_id, user)
+    return BatchService(db).get_batch_out(batch_id, user)
 
 
 @router.put("/{batch_id}", response_model=BatchOut)

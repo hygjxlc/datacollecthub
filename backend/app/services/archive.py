@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (Batch, DataFile, Event, EventFile, Nameplate,
                         Organization, PointDict, User)
+from app.services.common import sort_modalities
 from app.schemas.batch import BatchOut
 from app.schemas.datafile import DataFileOut
 from app.schemas.event import EventOut
@@ -81,6 +82,9 @@ def build_file_metadata(db: Session, df: DataFile) -> dict:
             creator = db.get(User, batch.creator_id) if batch.creator_id else None
             batch_meta["organization"] = org.name if org else None
             batch_meta["creator"] = creator.display_name if creator else None
+            mods = db.execute(select(DataFile.modality).where(
+                DataFile.batch_id == batch.id).distinct()).scalars().all()
+            batch_meta["modalities"] = sort_modalities(mods)
     ledger = _build_device_ledger(db, df.device_no, org_id)
     return {"file": file_meta, "batch": batch_meta,
             "nameplate": ledger["nameplate"],

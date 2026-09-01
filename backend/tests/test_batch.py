@@ -13,6 +13,7 @@ BATCH_PAYLOAD = {
     "is_synthetic": 0,
     "operating_condition": "正常",
     "weather": "晴",
+    "equipment_state_type": "风电",
 }
 
 

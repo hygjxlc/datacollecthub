@@ -8,7 +8,7 @@ from app.models import Batch, DataFile
 from app.repositories.base import assert_org_visible, assert_owner, filter_by_org
 from app.schemas.batch import BatchCreate, BatchOut, BatchUpdate
 from app.services.audit import write_audit
-from app.services.common import utcnow
+from app.services.common import sort_modalities, utcnow
 
 _BATCH_FIELDS = ("batch_no", "device_no", "device_model", "station", "license",
                  "sensitivity", "owner_contact", "is_synthetic",
@@ -32,15 +32,18 @@ class BatchService:
         if batch_ids:
             agg_rows = self.db.execute(
                 select(DataFile.batch_id, func.count(), func.coalesce(
-                    func.sum(DataFile.file_size), 0))
+                    func.sum(DataFile.file_size), 0),
+                    func.group_concat(func.distinct(DataFile.modality)))
                 .where(DataFile.batch_id.in_(batch_ids))
                 .group_by(DataFile.batch_id)).all()
-            agg = {r[0]: (r[1], r[2]) for r in agg_rows}
+            agg = {r[0]: (r[1], r[2], r[3]) for r in agg_rows}
         items = []
         for b in rows:
             out = BatchOut.model_validate(b)
-            count, size = agg.get(b.id, (0, 0))
+            count, size, mods = agg.get(b.id, (0, 0, ""))
             out.file_count, out.total_size = count, size
+            out.modalities = sort_modalities(
+                [m for m in (mods or "").split(",") if m])
             items.append(out)
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -50,6 +53,15 @@ class BatchService:
             raise not_found("批次不存在")
         assert_org_visible(batch, user)
         return batch
+
+    def get_batch_out(self, batch_id: str, user) -> BatchOut:
+        """详情页输出：modalities 单独聚合填充。"""
+        batch = self.get_batch(batch_id, user)
+        mods = self.db.execute(select(DataFile.modality).where(
+            DataFile.batch_id == batch.id).distinct()).scalars().all()
+        out = BatchOut.model_validate(batch)
+        out.modalities = sort_modalities(mods)
+        return out
 
     def create_batch(self, body: BatchCreate, user) -> BatchOut:
         if self.db.execute(select(Batch).where(
@@ -63,6 +75,7 @@ class BatchService:
                       is_synthetic=body.is_synthetic,
                       operating_condition=body.operating_condition,
                       weather=body.weather,
+                      equipment_state_type=body.equipment_state_type,
                       organization_id=user.organization_id, creator_id=user.id,
                       created_at=now, updated_at=now)
         self.db.add(batch)

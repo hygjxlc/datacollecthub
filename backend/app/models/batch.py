@@ -20,6 +20,7 @@ class Batch(Base):
     is_synthetic: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     operating_condition: Mapped[str | None] = mapped_column(String(256))
     weather: Mapped[str | None] = mapped_column(String(128))
+    equipment_state_type: Mapped[str | None] = mapped_column(String(16))  # 风电/火电/光伏
     organization_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("organization.id", ondelete="SET NULL"))
     creator_id: Mapped[str | None] = mapped_column(

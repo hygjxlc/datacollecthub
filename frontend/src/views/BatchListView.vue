@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { ElMessageBox } from "element-plus";
 import api from "../api";
 import { useBatchStore } from "../stores/batch";
+import { MODALITY_LABELS } from "../stores/dict";
 import PermissionWrapper from "../components/common/PermissionWrapper.vue";
 
 // 批次列表：文件数/数据量聚合（41ec700 后端补丁）+ 按归属渲染删除（TC-PERM-002）
@@ -50,6 +51,19 @@ onMounted(load);
     <el-table :data="store.list" border v-loading="loading">
       <el-table-column prop="batch_no" label="批次编号" min-width="130" />
       <el-table-column prop="device_no" label="设备/机组编号" width="130" />
+      <el-table-column prop="equipment_state_type" label="状态类型" width="90">
+        <template #default="{ row }">{{ row.equipment_state_type || "-" }}</template>
+      </el-table-column>
+      <el-table-column label="涵盖模态" min-width="150">
+        <template #default="{ row }">
+          <template v-if="row.modalities?.length">
+            <el-tag v-for="m in row.modalities" :key="m" size="small" class="mod-tag">
+              {{ MODALITY_LABELS[m] || m }}
+            </el-tag>
+          </template>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="station" label="所属场站" min-width="110" show-overflow-tooltip />
       <el-table-column prop="file_count" label="文件数" width="80" align="right" />
       <el-table-column label="数据量" width="110" align="right">
@@ -92,5 +106,8 @@ onMounted(load);
 .pager {
   margin-top: 16px;
   justify-content: flex-end;
+}
+.mod-tag {
+  margin-right: 4px;
 }
 </style>

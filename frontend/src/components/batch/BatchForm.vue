@@ -1,10 +1,12 @@
 <script setup>
 import { reactive } from "vue";
-import { LICENSES, SENSITIVITIES } from "../../stores/dict";
+import { ElMessage } from "element-plus";
+import { EQUIPMENT_STATE_TYPES, LICENSES, SENSITIVITIES } from "../../stores/dict";
 
 // 批次说明表表单（《数据收集要求清单》6.1 字段）
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
+  requireStateType: { type: Boolean, default: false },
 });
 const emit = defineEmits(["update:modelValue", "submit"]);
 
@@ -19,10 +21,15 @@ const form = reactive({
   is_synthetic: props.modelValue.is_synthetic ?? 0,
   operating_condition: props.modelValue.operating_condition || "",
   weather: props.modelValue.weather || "",
+  equipment_state_type: props.modelValue.equipment_state_type || "",
 });
 
 function submit() {
   if (!form.batch_no || !form.device_no) return;
+  if (props.requireStateType && !form.equipment_state_type) {
+    ElMessage.warning("请选择 数据对应设备:状态类型");
+    return;
+  }
   emit("update:modelValue", { ...form });
   emit("submit", { ...form });
 }
@@ -39,6 +46,14 @@ function submit() {
       <el-col :span="12">
         <el-form-item label="设备/机组编号" required>
           <el-input v-model="form.device_no" name="device_no" placeholder="如 F01" />
+        </el-form-item>
+      </el-col>
+      <el-col :span="12">
+        <el-form-item label="数据对应设备:状态类型" :required="requireStateType">
+          <el-select v-model="form.equipment_state_type" name="equipment_state_type"
+                     placeholder="风电/火电/光伏">
+            <el-option v-for="t in EQUIPMENT_STATE_TYPES" :key="t" :label="t" :value="t" />
+          </el-select>
         </el-form-item>
       </el-col>
       <el-col :span="12">

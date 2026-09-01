@@ -14,6 +14,12 @@ class Modality(str, enum.Enum):
     RPT = "RPT"
 
 
+class EquipmentStateType(str, enum.Enum):
+    WIND = "风电"
+    THERMAL = "火电"
+    SOLAR = "光伏"
+
+
 class Role(str, enum.Enum):
     user = "user"
     admin = "admin"

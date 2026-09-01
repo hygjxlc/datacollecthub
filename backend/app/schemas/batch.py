@@ -1,4 +1,8 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
+
+EQUIPMENT_STATE_TYPE_VALUES = ("风电", "火电", "光伏")
 
 
 class BatchCreate(BaseModel):
@@ -12,6 +16,7 @@ class BatchCreate(BaseModel):
     is_synthetic: int = 0
     operating_condition: str | None = None
     weather: str | None = None
+    equipment_state_type: Literal["风电", "火电", "光伏"]
 
 
 class BatchUpdate(BaseModel):
@@ -25,6 +30,7 @@ class BatchUpdate(BaseModel):
     is_synthetic: int | None = None
     operating_condition: str | None = None
     weather: str | None = None
+    equipment_state_type: Literal["风电", "火电", "光伏"] | None = None
 
 
 class BatchOut(BaseModel):
@@ -41,6 +47,8 @@ class BatchOut(BaseModel):
     is_synthetic: int
     operating_condition: str | None = None
     weather: str | None = None
+    equipment_state_type: str | None = None
+    modalities: list[str] = []   # 只读聚合：批次下文件 modality 去重（按模态规范顺序）
     organization_id: str | None = None
     creator_id: str | None = None
     file_count: int = 0          # 列表页聚合（文件数）
