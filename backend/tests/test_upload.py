@@ -41,10 +41,13 @@ def test_init_cross_org_batch_404(client, user_token, other_org_batch, storage):
 
 
 def test_init_duplicate_object_key_422(client, user_token, batch, storage, db):
+    from datetime import datetime
+
     from app.models import DataFile
     from tests.conftest import utcnow
 
-    key = f"wind/F01/scada/2026/08/{FILENAME}"
+    ym = datetime.now().strftime("%Y/%m")   # 与 build_object_key 当前年月一致
+    key = f"wind/F01/scada/{ym}/{FILENAME}"
     db.add(DataFile(id="file-x", batch_id="batch-1", object_key=key,
                     filename=FILENAME, file_size=1, modality="SCADA",
                     uploader_id="user-1", upload_status="已完成",
