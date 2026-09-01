@@ -98,7 +98,7 @@ class BatchService:
             write_audit(self.db, user=user, action="update", entity_type="batch",
                         entity_id=batch.id, field_changes=changes)
             self.db.commit()
-        return BatchOut.model_validate(batch)
+        return self.get_batch_out(batch_id, user)
 
     def delete_batch(self, batch_id: str, user) -> None:
         batch = self.get_batch(batch_id, user)

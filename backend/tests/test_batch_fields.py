@@ -93,3 +93,28 @@ def test_export_excel_contains_state_type_column(client, user_token, batch):
     ws = load_workbook(io.BytesIO(r.content))["批次说明表"]
     headers = [c.value for c in ws[1]]
     assert "数据对应设备:状态类型" in headers
+
+
+def test_update_other_field_keeps_state_type(client, user_token, batch):
+    """先置状态类型为风电，再 PUT 其他字段，断言状态类型不被覆盖。"""
+    client.put("/api/v1/batches/batch-1", json={"equipment_state_type": "风电"},
+               headers=auth(user_token))
+    r = client.put("/api/v1/batches/batch-1", json={"weather": "阴"},
+                   headers=auth(user_token))
+    assert r.status_code == 200
+    assert r.json()["equipment_state_type"] == "风电"
+
+
+def test_list_modalities_distinct_dedup(client, user_token, batch, own_file, db):
+    """同批次两个 SCADA 文件 → 列表聚合去重后只出现一次 SCADA。"""
+    from app.models import DataFile
+    from tests.conftest import utcnow
+
+    db.add(DataFile(id="file-scada2", batch_id="batch-1", batch_no="B2025-001",
+                    object_key="wind/F01/scada/2025/06/scada2.dat", filename="scada2.dat",
+                    file_size=100, modality="SCADA", uploader_id="user-1",
+                    upload_status="已完成", created_at=utcnow(), updated_at=utcnow()))
+    db.commit()
+    r = client.get("/api/v1/batches", headers=auth(user_token))
+    item = next(b for b in r.json()["items"] if b["id"] == "batch-1")
+    assert item["modalities"] == ["SCADA"]   # 去重后仅一个
