@@ -1,3 +1,4 @@
+import math
 import uuid
 
 from sqlalchemy import func, select
@@ -12,32 +13,44 @@ from app.services.common import sort_modalities, utcnow
 
 _BATCH_FIELDS = ("batch_no", "device_no", "device_model", "station", "license",
                  "sensitivity", "owner_contact", "is_synthetic",
-                 "operating_condition", "weather")
+                 "operating_condition", "weather", "equipment_state_type")
 
 _MAX_EXTRAS_KEYS = 20
 _MAX_EXTRAS_KEY_LEN = 64
 _ALLOWED_EXTRAS_VALUE_TYPES = (str, int, float, bool, type(None))
-_FIXED_BATCH_FIELDS = frozenset(_BATCH_FIELDS) | {"equipment_state_type"}
+_FIXED_BATCH_FIELDS = frozenset(_BATCH_FIELDS)
 
 
 def validate_extras(extras: dict | None) -> dict | None:
-    """扩展字段校验：固定字段不重名、仅 JSON 基本类型、键长与数量上限。"""
+    """扩展字段校验：固定字段不重名、仅 JSON 基本类型、键长与数量上限。
+
+    键名统一 trim；空 dict 归一为 None（与未设置同义）；拒绝 NaN/Inf 等非有限数字。
+    """
     if extras is None:
         return None
     if not isinstance(extras, dict):
         raise unprocessable("扩展字段必须为键值对对象")
     if len(extras) > _MAX_EXTRAS_KEYS:
         raise unprocessable(f"扩展字段最多 {_MAX_EXTRAS_KEYS} 个键")
+    cleaned: dict = {}
     for key, value in extras.items():
-        if not isinstance(key, str) or not key:
+        if not isinstance(key, str):
+            raise unprocessable("扩展字段键名必须为非空字符串")
+        key = key.strip()
+        if not key:
             raise unprocessable("扩展字段键名必须为非空字符串")
         if len(key) > _MAX_EXTRAS_KEY_LEN:
             raise unprocessable(f"扩展字段键名 {key} 超过 {_MAX_EXTRAS_KEY_LEN} 字符")
         if key in _FIXED_BATCH_FIELDS:
             raise unprocessable(f"扩展字段键 {key} 与固定字段重名")
+        if key in cleaned:
+            raise unprocessable(f"扩展字段键 {key} 重复")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise unprocessable(f"扩展字段 {key} 的值必须是有限数字")
         if not isinstance(value, _ALLOWED_EXTRAS_VALUE_TYPES):
             raise unprocessable(f"扩展字段 {key} 的值仅支持字符串/数字/布尔/空值")
-    return extras
+        cleaned[key] = value
+    return cleaned if cleaned else None
 
 
 class BatchService:
