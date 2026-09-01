@@ -72,6 +72,21 @@ def test_metadata_json_contains_state_type_and_modalities(client, db, own_file):
     assert meta["batch"]["modalities"] == ["SCADA"]
 
 
+def test_update_without_state_type_keeps_value(client, user_token, batch):
+    r = client.put("/api/v1/batches/batch-1", json={"weather": "阴"},
+                   headers=auth(user_token))
+    assert r.status_code == 200
+    assert r.json()["weather"] == "阴"
+    assert r.json()["equipment_state_type"] is None   # 未传字段保持原值（null）
+
+
+def test_update_empty_string_state_normalized_to_none(client, user_token, batch):
+    r = client.put("/api/v1/batches/batch-1", json={"equipment_state_type": ""},
+                   headers=auth(user_token))
+    assert r.status_code == 200
+    assert r.json()["equipment_state_type"] is None
+
+
 def test_export_excel_contains_state_type_column(client, user_token, batch):
     r = client.get("/api/v1/batches/batch-1/export", headers=auth(user_token))
     assert r.status_code == 200

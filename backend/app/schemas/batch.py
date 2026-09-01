@@ -1,8 +1,6 @@
-from typing import Literal
+from pydantic import BaseModel, ConfigDict, field_validator
 
-from pydantic import BaseModel, ConfigDict
-
-EQUIPMENT_STATE_TYPE_VALUES = ("风电", "火电", "光伏")
+from app.schemas.enums import EquipmentStateType
 
 
 class BatchCreate(BaseModel):
@@ -16,7 +14,7 @@ class BatchCreate(BaseModel):
     is_synthetic: int = 0
     operating_condition: str | None = None
     weather: str | None = None
-    equipment_state_type: Literal["风电", "火电", "光伏"]
+    equipment_state_type: EquipmentStateType
 
 
 class BatchUpdate(BaseModel):
@@ -30,7 +28,12 @@ class BatchUpdate(BaseModel):
     is_synthetic: int | None = None
     operating_condition: str | None = None
     weather: str | None = None
-    equipment_state_type: Literal["风电", "火电", "光伏"] | None = None
+    equipment_state_type: EquipmentStateType | None = None
+
+    @field_validator("equipment_state_type", mode="before")
+    @classmethod
+    def _empty_state_to_none(cls, v):
+        return None if v == "" else v
 
 
 class BatchOut(BaseModel):

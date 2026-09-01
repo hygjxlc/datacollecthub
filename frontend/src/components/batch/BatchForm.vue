@@ -30,8 +30,10 @@ function submit() {
     ElMessage.warning("请选择 数据对应设备:状态类型");
     return;
   }
-  emit("update:modelValue", { ...form });
-  emit("submit", { ...form });
+  const payload = { ...form };
+  payload.equipment_state_type = payload.equipment_state_type || null;
+  emit("update:modelValue", payload);
+  emit("submit", payload);
 }
 </script>
 
