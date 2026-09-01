@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import bad_request, unprocessable
-from app.models import Batch, DataFile
+from app.models import Batch, DataFile, Organization
 from app.schemas.datafile import DataFileOut
 from app.schemas.upload import UploadCompleteRequest, UploadInitRequest, UploadInitResponse
 from app.services.audit import write_audit
@@ -45,7 +45,12 @@ class UploadService:
         if body.file_size <= 0:
             raise unprocessable("file_size 必须为正数")
         batch = BatchService(self.db).get_batch(batch_id, user)
-        station = (batch.station or batch.organization.name).replace(" ", "")
+        # station 为空时回退组织名（Batch 无 organization relationship，显式查库）
+        station = batch.station or ""
+        if not station:
+            org = self.db.get(Organization, batch.organization_id)
+            station = org.name if org else (batch.device_no or "unknown")
+        station = station.replace(" ", "")
         object_key = build_object_key(station, batch.device_no, body.filename)
         if self.db.execute(select(DataFile).where(
                 DataFile.object_key == object_key)).scalar_one_or_none():

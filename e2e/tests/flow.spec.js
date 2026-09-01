@@ -41,18 +41,30 @@ test.describe.serial("DataCollectHub 核心流程", () => {
     await login(page, "zhang", "pass123");
     await expect(page.getByText("新建批次")).toBeVisible();
 
-    // 2. 新建批次（TC-BATCH-001）
+    // 2. 新建批次（TC-BATCH-001）：状态类型必填；编号规则启用时编号由系统生成
     await page.click("button:has-text('新建批次')");
     await page.waitForURL(/\/batches\/new$/);
-    await page.fill("[name=batch_no]", BATCH_NO);
+    const autoNo = await page.locator("[name=batch_no]").isDisabled();
+    if (!autoNo) await page.fill("[name=batch_no]", BATCH_NO);
     await page.fill("[name=device_no]", "F01");
     await page.fill("[name=station]", "辉腾梁风电场");
+    // 选择 数据对应设备:状态类型（任务 1 新增必填）
+    await page.locator(".el-form-item", { hasText: "数据对应设备:状态类型" })
+      .locator(".el-select").click();
+    await page.locator(".el-select-dropdown__item:visible", { hasText: "风电" }).first().click();
     await page.click("button:has-text('创建批次')");
     await expect(page.locator(".el-message--success", { hasText: "创建成功" })).toBeVisible();
     await page.waitForURL(/\/batches\/[0-9a-f-]+$/);
     state.batchId = page.url().split("/").pop();
+    // 编号规则启用时编号由系统生成：从 API 读实际编号（后续用例统一引用）
+    const token0 = await apiToken(request, "zhang", "pass123");
+    const bResp = await request.get(`/api/v1/batches/${state.batchId}`, {
+      headers: { Authorization: `Bearer ${token0}` },
+    });
+    expect(bResp.status()).toBe(200);
+    state.batchNo = (await bResp.json()).batch_no;
     // 批次说明表内出现批次编号（避免与标题/提示消息重复匹配）
-    await expect(page.locator(".el-descriptions").getByText(BATCH_NO)).toBeVisible();
+    await expect(page.locator(".el-descriptions").getByText(state.batchNo)).toBeVisible();
 
     // 3. 上传 5MB 文件（TC-UP-001/003 分片直传）
     await page.click("button:has-text('上传文件')");
@@ -95,7 +107,7 @@ test.describe.serial("DataCollectHub 核心流程", () => {
 
     // 取 file_id 供权限用例使用
     const token = await apiToken(request, "zhang", "pass123");
-    const listResp = await request.get(`/api/v1/files?batch_no=${encodeURIComponent(BATCH_NO)}`, {
+    const listResp = await request.get(`/api/v1/files?batch_no=${encodeURIComponent(state.batchNo)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(listResp.status()).toBe(200);
@@ -108,7 +120,7 @@ test.describe.serial("DataCollectHub 核心流程", () => {
     // li 与 zhang 同属辉腾梁风电场，但非文件归属人
     await login(page, "li", "pass123");
     await page.goto(`/batches/${state.batchId}`);
-    await expect(page.locator(".el-descriptions").getByText(BATCH_NO)).toBeVisible();
+    await expect(page.locator(".el-descriptions").getByText(state.batchNo)).toBeVisible();
 
     const body = page.locator(".el-table__body");
     await expect(body.getByText(FILENAME)).toBeVisible();
@@ -148,7 +160,7 @@ test.describe.serial("DataCollectHub 核心流程", () => {
     // 1. 列表行内"复制新建"→ 跳转预填新建页（batch_no 清空，其余字段带入）
     await login(page, "zhang", "pass123");
     const body = page.locator(".el-table__body");
-    await body.locator("tr", { hasText: BATCH_NO }).getByRole("button", { name: "复制新建" }).click();
+    await body.locator("tr", { hasText: state.batchNo }).getByRole("button", { name: "复制新建" }).click();
     await page.waitForURL((url) =>
       url.pathname === "/batches/new" && !!url.searchParams.get("copy_from"));
     await expect(page.locator(".el-alert")).toContainText("已从批次");
@@ -156,8 +168,9 @@ test.describe.serial("DataCollectHub 核心流程", () => {
     await expect(page.locator("[name=device_no]")).toHaveValue("F01");
     await expect(page.locator("[name=station]")).toHaveValue("辉腾梁风电场");
 
-    // 2. 改 batch_no 提交（新批次唯一编号）
-    await page.fill("[name=batch_no]", COPY_BATCH_NO);
+    // 2. 改 batch_no 提交（编号规则启用时编号由系统生成，输入框只读）
+    const autoNo = await page.locator("[name=batch_no]").isDisabled();
+    if (!autoNo) await page.fill("[name=batch_no]", COPY_BATCH_NO);
     await page.click("button:has-text('创建批次')");
     await expect(page.locator(".el-message--success", { hasText: "创建成功" })).toBeVisible();
     await page.waitForURL(/\/batches\/[0-9a-f-]+$/);
@@ -202,7 +215,7 @@ test.describe.serial("DataCollectHub 核心流程", () => {
     await expect(page.locator(".el-message--success", { hasText: "元数据已保存" })).toBeVisible();
     await expect(body).toContainText("2025-06-15 14:23:08");
     const token = await apiToken(request, "zhang", "pass123");
-    const listResp = await request.get(`/api/v1/files?batch_no=${encodeURIComponent(BATCH_NO)}`, {
+    const listResp = await request.get(`/api/v1/files?batch_no=${encodeURIComponent(state.batchNo)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(listResp.status()).toBe(200);
@@ -224,7 +237,7 @@ test.describe.serial("DataCollectHub 核心流程", () => {
     await page.goto("/files");
 
     // 1. 按批次检索到用例 1/5 上传的 2 个文件
-    await page.fill("[name=batch_no]", BATCH_NO);
+    await page.fill("[name=batch_no]", state.batchNo);
     await page.click("button:has-text('查询')");
     const body = page.locator(".el-table__body");
     await expect(body.getByText(FILENAME)).toBeVisible();

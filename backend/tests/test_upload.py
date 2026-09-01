@@ -92,3 +92,23 @@ def test_complete_writes_audit(client, user_token, batch, storage, db):
     _complete(client, user_token, init_body["upload_id"], init_body["object_key"])
     log = db.query(AuditLog).filter_by(entity_type="datafile", action="create").one()
     assert log.username == "zhang"
+
+
+def test_init_station_empty_falls_back_to_org_name(client, user_token, db, org, storage):
+    """TC-BATCH-STATE 生产 500 回归：station 为空的批次 init 不报错，
+    回退组织名作 object_key 首段（Batch 无 organization relationship）。"""
+    from app.models import Batch
+    from tests.conftest import utcnow
+
+    b = Batch(id="batch-3", batch_no="B2025-003", device_no="F02",
+              device_model="", station=None,
+              license="内部专用", sensitivity="内部", owner_contact="张工",
+              is_synthetic=0, operating_condition="", weather="",
+              organization_id="org-1", creator_id="user-1",
+              created_at=utcnow(), updated_at=utcnow())
+    db.add(b)
+    db.commit()
+    r = _init(client, user_token, batch_id="batch-3",
+              filename="SCADA_F02_20250901_1423.dat")
+    assert r.status_code == 200
+    assert r.json()["object_key"].startswith("辉腾梁风电场/F02/scada/")
