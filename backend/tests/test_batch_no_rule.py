@@ -88,7 +88,7 @@ def test_render_and_counter_key_unit(db):
     assert svc.counter_key(tpl2, device_no="F01", now=now) == "D-F01-26-"
 
 
-def test_counter_key_reset_dimensions(db):
+def test_counter_key_reset_dimensions(client, db):
     """{YYYY}按年重置、{MM}按月重置、无日期永不重置（规格 3.2）。"""
     from app.services.batch_no_service import BatchNoService
 
@@ -110,7 +110,7 @@ def test_counter_key_reset_dimensions(db):
     assert svc.counter_key(n, device_no="F01", now=next_year) == "B-"
 
 
-def test_next_seq_atomic_sequential(db):
+def test_next_seq_atomic_sequential(client, db):
     """同一 counter_key 连续自增返回连续不重复值（含 INSERT ON CONFLICT 路径）。"""
     from app.services.batch_no_service import BatchNoService
 

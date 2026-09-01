@@ -14,8 +14,13 @@ const PLACEHOLDERS = [
 ];
 
 function preview(input) {
-  return (input || "").replace(/\{YYYY\}/g, "2026").replace(/\{YY\}/g, "26")
-    .replace(/\{MM\}/g, "09").replace(/\{DD\}/g, "01")
+  const now = new Date();
+  const yyyy = String(now.getFullYear());
+  const yy = yyyy.slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return (input || "").replace(/\{YYYY\}/g, yyyy).replace(/\{YY\}/g, yy)
+    .replace(/\{MM\}/g, mm).replace(/\{DD\}/g, dd)
     .replace(/\{DEVICE_NO\}/g, "F01")
     .replace(/\{SEQ:(\d+)\}/g, (_, n) => "1".padStart(Number(n), "0"));
 }

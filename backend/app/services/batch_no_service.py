@@ -1,13 +1,14 @@
 """批次编号自动生成：模板解析 + 原子计数器。
 
-- 模板占位符：{YYYY} {YY} {MM} {DD} {SEQ:n} {DEVICE_NO}，必须含 {SEQ:n}。
+- 模板占位符：{YYYY} {YY} {MM} {DD} {SEQ:n} {DEVICE_NO}，必须含 {SEQ:n}，且
+  {SEQ:n} 必须是模板中最后一个占位符（其后允许普通字面文本）。
 - counter_key = 模板中除 {SEQ} 外全部占位符渲染当前值后的字符串：
   含日期占位符 → 按对应日期维度自动重置序号；含 {DEVICE_NO} → 按设备隔离序号。
 - 首次使用某 counter_key 时，扫描存量批次中该前缀编号的最大序号作为起始值。
 - 原子自增用 SQLite INSERT ON CONFLICT DO UPDATE ... RETURNING value。
+- 规则为全局单行配置，固定主键 "singleton"，save_rule 用原子 upsert 保证并发下单行。
 """
 import re
-import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
@@ -28,14 +29,15 @@ class BatchNoService:
         self.db = db
 
     def get_rule(self) -> BatchNoRule | None:
-        return self.db.execute(select(BatchNoRule).limit(1)).scalar_one_or_none()
+        return self.db.get(BatchNoRule, "singleton")
 
     @staticmethod
     def validate_template(template: str) -> None:
         if not template or not template.strip():
             raise unprocessable("编号模板不能为空")
+        matches = list(_PLACEHOLDER_RE.finditer(template))
         has_seq = False
-        for m in _PLACEHOLDER_RE.finditer(template):
+        for m in matches:
             name, digits = m.group(1), m.group(2)
             if name not in _ALLOWED_PLACEHOLDERS:
                 raise unprocessable(
@@ -50,19 +52,23 @@ class BatchNoService:
                 raise unprocessable(f"占位符 {name} 不支持位数参数")
         if not has_seq:
             raise unprocessable("模板必须包含 {SEQ:n} 序号占位符")
+        # {SEQ:n} 必须是模板中最后一个占位符（其后允许普通字面文本，不允许其他占位符）
+        if matches[-1].group(1) != "SEQ":
+            raise unprocessable("SEQ 序号占位符必须是模板末尾的最后一个占位符")
 
     def save_rule(self, template: str, user) -> BatchNoRule:
         self.validate_template(template)
-        rule = self.get_rule()
-        if rule is None:
-            rule = BatchNoRule(id=str(uuid.uuid4()), template=template,
-                               updated_by=user.id, updated_at=utcnow())
-            self.db.add(rule)
-        else:
-            rule.template = template
-            rule.updated_by = user.id
-            rule.updated_at = utcnow()
+        # 固定主键 "singleton" 的原子 upsert：并发保存时也只会保留一行规则
+        sql = text(
+            "INSERT INTO batch_no_rule (id, template, updated_by, updated_at) "
+            "VALUES (:id, :t, :u, :at) "
+            "ON CONFLICT(id) DO UPDATE SET template = :t, updated_by = :u, "
+            "updated_at = :at")
+        self.db.execute(sql, {"id": "singleton", "t": template,
+                              "u": user.id, "at": utcnow()})
         self.db.commit()
+        rule = self.db.get(BatchNoRule, "singleton")
+        assert rule is not None
         return rule
 
     def _render(self, template: str, *, device_no: str, now: datetime,
@@ -91,9 +97,14 @@ class BatchNoService:
 
     def _seed_from_existing(self, counter_key: str) -> int:
         """存量批次中该前缀编号的最大序号（后缀需全为数字），无则 0。"""
-        numbers = [b for b in self.db.execute(select(Batch.batch_no)).scalars()
-                   if b.startswith(counter_key) and b[len(counter_key):].isdigit()]
-        return max((int(n[len(counter_key):]) for n in numbers), default=0)
+        numbers: list[int] = []
+        for (batch_no,) in self.db.execute(
+                select(Batch.batch_no).where(
+                    Batch.batch_no.like(f"{counter_key}%"))).all():
+            suffix = batch_no[len(counter_key):]
+            if suffix.isascii() and suffix.isdigit():
+                numbers.append(int(suffix))
+        return max(numbers, default=0)
 
     def _next_seq(self, counter_key: str) -> int:
         existing = self.db.get(BatchNoCounter, counter_key)
@@ -111,9 +122,13 @@ class BatchNoService:
     def generate(self, template: str, device_no: str) -> str:
         now = datetime.now(timezone.utc)
         key = self.counter_key(template, device_no=device_no, now=now)
+        # 双层重试：内层处理 generate 内查重冲突（已占用编号则自增再查）；
+        # 外层 create_batch 捕获 IntegrityError 重试，作为唯一索引的最终兜底。
         for _ in range(_GENERATE_RETRIES):
             seq = self._next_seq(key)
             batch_no = self.render(template, device_no=device_no, now=now, seq=seq)
+            if len(batch_no) > 64:
+                raise unprocessable("生成的批次编号超过 64 字符，请调整模板或设备编号")
             exists = self.db.execute(select(Batch).where(
                 Batch.batch_no == batch_no)).scalar_one_or_none()
             if exists is None:
