@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.core.db import Base, engine
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
+from app.routers import batch_imports as batch_imports_router
 from app.routers import batch_no as batch_no_router
 from app.routers import batches as batches_router
 from app.routers import events as events_router
@@ -27,6 +28,7 @@ app = FastAPI(title="DataCollectHub", lifespan=lifespan)
 app.include_router(auth_router.router)
 app.include_router(admin_router.router)
 app.include_router(batch_no_router.router)
+app.include_router(batch_imports_router.router)
 app.include_router(batches_router.router)
 app.include_router(uploads_router.router)
 app.include_router(files_router.router)

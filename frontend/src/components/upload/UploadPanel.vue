@@ -17,8 +17,14 @@ const PART_SIZE = 10 * 1024 * 1024;   // 与后端 PART_SIZE 一致（10MB/片�
 const props = defineProps({
   batchId: { type: String, required: true },
   deviceNo: { type: String, default: "" },
+  initUrl: { type: String, default: "" },            // 空=默认批次分片直传
+  completeUrlTemplate: {
+    type: String,
+    default: "/batches/{batchId}/files/upload/{uploadId}/complete",
+  },
+  checkPointDict: { type: Boolean, default: true },
 });
-const emit = defineEmits(["uploaded"]);
+const emit = defineEmits(["uploaded", "file-uploaded"]);
 
 const uploadStore = useUploadStore();
 const fileInput = ref(null);
@@ -90,7 +96,7 @@ async function handleFiles(evt) {
   const files = Array.from(evt.target.files || []);
   evt.target.value = "";   // 允许重复选择同一文件
   for (const file of files) {
-    if (!(await ensurePointDict(file.name))) return;
+    if (props.checkPointDict && !(await ensurePointDict(file.name))) return;
     await startUpload(file);
   }
   emit("uploaded");
@@ -99,7 +105,8 @@ async function handleFiles(evt) {
 async function startUpload(file) {
   const existing = uploadStore.forBatch(props.batchId)
     .find((t) => t.fileName === file.name && t.size === file.size);
-  const { data } = await api.post(`/batches/${props.batchId}/files/upload/init`, {
+  const initUrl = props.initUrl || `/batches/${props.batchId}/files/upload/init`;
+  const { data } = await api.post(initUrl, {
     filename: file.name, file_size: file.size,
   });
   const task = existing
@@ -120,12 +127,15 @@ async function startUpload(file) {
       task.done.push(p.part_number);
       uploadStore.save();                                // 每片完成即持久化
     }
-    await api.post(`/batches/${props.batchId}/files/upload/${data.upload_id}/complete`, {
+    const completeUrl = props.completeUrlTemplate
+      .replace("{batchId}", props.batchId).replace("{uploadId}", data.upload_id);
+    await api.post(completeUrl, {
       object_key: data.object_key, filename: file.name, file_size: file.size,
       parts: data.parts.map((p) => ({ part_number: p.part_number, etag: "" })),
     });
     uploadStore.remove(data.upload_id);
     ElMessage.success(`${file.name} 上传完成`);
+    emit("file-uploaded", { objectKey: data.object_key, fileName: file.name });
   } catch {
     uploadStore.updateStatus(task.uploadId, "paused");
     ElMessage.warning(`${file.name} 上传中断，可重新选择同一文件续传`);

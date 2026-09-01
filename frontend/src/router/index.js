@@ -5,6 +5,7 @@ import AppLayout from "../layouts/AppLayout.vue";
 import LoginView from "../views/LoginView.vue";
 import BatchListView from "../views/BatchListView.vue";
 import BatchCreateView from "../views/BatchCreateView.vue";
+import BatchImportView from "../views/BatchImportView.vue";
 import BatchDetailView from "../views/BatchDetailView.vue";
 import UploadView from "../views/UploadView.vue";
 import FileListView from "../views/FileListView.vue";
@@ -25,6 +26,7 @@ const routes = [
     redirect: "/batches",
     children: [
       { path: "batches", component: BatchListView },
+      { path: "batch-imports", component: BatchImportView },
       { path: "batches/new", component: BatchCreateView },
       { path: "batches/:id", component: BatchDetailView },
       { path: "batches/:id/upload", component: UploadView },

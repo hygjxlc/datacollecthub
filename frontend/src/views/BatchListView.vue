@@ -45,7 +45,10 @@ onMounted(load);
   <div class="page">
     <div class="toolbar">
       <h3>批次管理</h3>
-      <el-button type="primary" @click="router.push('/batches/new')">新建批次</el-button>
+      <div>
+        <el-button @click="router.push('/batch-imports')">批量导入</el-button>
+        <el-button type="primary" @click="router.push('/batches/new')">新建批次</el-button>
+      </div>
     </div>
 
     <el-table :data="store.list" border v-loading="loading">

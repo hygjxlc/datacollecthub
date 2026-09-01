@@ -33,6 +33,7 @@ class ObjectStorage(Protocol):
     def delete_object(self, object_key: str) -> None: ...
     def exists(self, object_key: str) -> bool: ...
     def get_object_stream(self, object_key: str) -> BinaryIO: ...
+    def put_object(self, object_key: str, data: bytes) -> None: ...
 
 
 def part_object_key(object_key: str, upload_id: str, part_number: int) -> str:
@@ -107,6 +108,9 @@ class MinioStorage:
         except S3Error:
             raise KeyError(object_key)
 
+    def put_object(self, object_key: str, data: bytes) -> None:
+        self._client.put_object(self._bucket, object_key, io.BytesIO(data), length=len(data))
+
 
 class FakeStorage:
     """内存实现：multipart 语义与 MinioStorage 等价（compose = 分片拼接）。"""
@@ -144,6 +148,9 @@ class FakeStorage:
         if object_key not in self.objects:
             raise KeyError(object_key)
         return io.BytesIO(self.objects[object_key])
+
+    def put_object(self, object_key: str, data: bytes) -> None:
+        self.objects[object_key] = data
 
 
 _default_storage: ObjectStorage | None = None
