@@ -24,6 +24,19 @@ const form = reactive({
   equipment_state_type: props.modelValue.equipment_state_type || "",
 });
 
+// 扩展字段动态键值对
+const extrasList = reactive(
+  Object.entries(props.modelValue.extras || {}).map(([key, value]) => ({
+    key, value: String(value ?? ""),
+  }))
+);
+function addExtra() {
+  extrasList.push({ key: "", value: "" });
+}
+function removeExtra(index) {
+  extrasList.splice(index, 1);
+}
+
 function submit() {
   if (!form.batch_no || !form.device_no) return;
   if (props.requireStateType && !form.equipment_state_type) {
@@ -32,6 +45,17 @@ function submit() {
   }
   const payload = { ...form };
   payload.equipment_state_type = payload.equipment_state_type || null;
+  const extras = {};
+  for (const row of extrasList) {
+    const k = (row.key || "").trim();
+    if (!k) continue;
+    if (k in extras) {
+      ElMessage.warning(`扩展字段键名重复：${k}`);
+      return;
+    }
+    extras[k] = row.value;
+  }
+  payload.extras = Object.keys(extras).length ? extras : null;
   emit("update:modelValue", payload);
   emit("submit", payload);
 }
@@ -105,6 +129,19 @@ function submit() {
         </el-form-item>
       </el-col>
     </el-row>
+    <el-divider content-position="left">扩展字段（可选，下载元数据 JSON 一并导出）</el-divider>
+    <el-row v-for="(row, i) in extrasList" :key="i" :gutter="8">
+      <el-col :span="9">
+        <el-input v-model="row.key" placeholder="键名（如 采集周期）" />
+      </el-col>
+      <el-col :span="13">
+        <el-input v-model="row.value" placeholder="值" />
+      </el-col>
+      <el-col :span="2">
+        <el-button text type="danger" @click="removeExtra(i)">删除</el-button>
+      </el-col>
+    </el-row>
+    <el-button link type="primary" @click="addExtra">+ 添加扩展字段</el-button>
     <slot />
   </el-form>
 </template>

@@ -15,6 +15,7 @@ class BatchCreate(BaseModel):
     operating_condition: str | None = None
     weather: str | None = None
     equipment_state_type: EquipmentStateType
+    extras: dict | None = None
 
 
 class BatchUpdate(BaseModel):
@@ -29,6 +30,7 @@ class BatchUpdate(BaseModel):
     operating_condition: str | None = None
     weather: str | None = None
     equipment_state_type: EquipmentStateType | None = None
+    extras: dict | None = None
 
     @field_validator("equipment_state_type", mode="before")
     @classmethod
@@ -51,6 +53,7 @@ class BatchOut(BaseModel):
     operating_condition: str | None = None
     weather: str | None = None
     equipment_state_type: str | None = None
+    extras: dict | None = None
     modalities: list[str] = []   # 只读聚合：批次下文件 modality 去重（按模态规范顺序）
     organization_id: str | None = None
     creator_id: str | None = None

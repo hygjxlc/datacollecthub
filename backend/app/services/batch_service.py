@@ -14,6 +14,31 @@ _BATCH_FIELDS = ("batch_no", "device_no", "device_model", "station", "license",
                  "sensitivity", "owner_contact", "is_synthetic",
                  "operating_condition", "weather")
 
+_MAX_EXTRAS_KEYS = 20
+_MAX_EXTRAS_KEY_LEN = 64
+_ALLOWED_EXTRAS_VALUE_TYPES = (str, int, float, bool, type(None))
+_FIXED_BATCH_FIELDS = frozenset(_BATCH_FIELDS) | {"equipment_state_type"}
+
+
+def validate_extras(extras: dict | None) -> dict | None:
+    """扩展字段校验：固定字段不重名、仅 JSON 基本类型、键长与数量上限。"""
+    if extras is None:
+        return None
+    if not isinstance(extras, dict):
+        raise unprocessable("扩展字段必须为键值对对象")
+    if len(extras) > _MAX_EXTRAS_KEYS:
+        raise unprocessable(f"扩展字段最多 {_MAX_EXTRAS_KEYS} 个键")
+    for key, value in extras.items():
+        if not isinstance(key, str) or not key:
+            raise unprocessable("扩展字段键名必须为非空字符串")
+        if len(key) > _MAX_EXTRAS_KEY_LEN:
+            raise unprocessable(f"扩展字段键名 {key} 超过 {_MAX_EXTRAS_KEY_LEN} 字符")
+        if key in _FIXED_BATCH_FIELDS:
+            raise unprocessable(f"扩展字段键 {key} 与固定字段重名")
+        if not isinstance(value, _ALLOWED_EXTRAS_VALUE_TYPES):
+            raise unprocessable(f"扩展字段 {key} 的值仅支持字符串/数字/布尔/空值")
+    return extras
+
 
 class BatchService:
     def __init__(self, db: Session):
@@ -67,6 +92,7 @@ class BatchService:
         if self.db.execute(select(Batch).where(
                 Batch.batch_no == body.batch_no)).scalar_one_or_none():
             raise unprocessable("批次编号已存在")
+        extras = validate_extras(body.extras)
         now = utcnow()
         batch = Batch(id=str(uuid.uuid4()), batch_no=body.batch_no,
                       device_no=body.device_no, device_model=body.device_model,
@@ -76,6 +102,7 @@ class BatchService:
                       operating_condition=body.operating_condition,
                       weather=body.weather,
                       equipment_state_type=body.equipment_state_type,
+                      extras=extras,
                       organization_id=user.organization_id, creator_id=user.id,
                       created_at=now, updated_at=now)
         self.db.add(batch)
@@ -87,8 +114,11 @@ class BatchService:
     def update_batch(self, batch_id: str, body: BatchUpdate, user) -> BatchOut:
         batch = self.get_batch(batch_id, user)
         assert_owner(batch, user)
+        data = body.model_dump(exclude_unset=True)
+        if "extras" in data:
+            data["extras"] = validate_extras(data["extras"])
         changes = {}
-        for field, value in body.model_dump(exclude_unset=True).items():
+        for field, value in data.items():
             old = getattr(batch, field)
             if old != value:
                 changes[field] = {"old": old, "new": value}
