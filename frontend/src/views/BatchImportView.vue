@@ -76,7 +76,7 @@ onUnmounted(stopPolling);
                    complete-url-template="/batch-imports/upload/{uploadId}/complete"
                    @file-uploaded="onFileUploaded" />
       <el-alert type="info" show-icon :closable="false" class="tip"
-                title="manifest.csv 字段：目录、batch_no（启用编号规则时留空）、device_no、license、sensitivity、is_synthetic、数据对应设备:状态类型为必填；其余选填；任意附加列将作为该批次扩展字段（extras）入库。" />
+                title="manifest.csv 必填列：目录、batch_no（启用编号规则时留空）、device_no、license、sensitivity、is_synthetic、数据对应设备:状态类型；其余选填。自定义字段：在表格中自由增加列（如 采集时长、额定风速），导入后自动成为该批次的扩展字段，在批次详情页展示。" />
     </el-card>
 
     <el-card v-if="current" class="card">
