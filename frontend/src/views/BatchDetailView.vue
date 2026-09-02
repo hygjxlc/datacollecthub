@@ -154,15 +154,6 @@ onMounted(load);
         <el-descriptions-item label="文件数 / 数据量">
           {{ batch.file_count }} 个文件
         </el-descriptions-item>
-        <el-descriptions-item label="扩展字段">
-          <template v-if="batch.extras && Object.keys(batch.extras).length">
-            <el-tag v-for="(v, k) in batch.extras" :key="k" size="small"
-                    type="warning" effect="plain" style="margin-right: 4px">
-              {{ k }}: {{ v }}
-            </el-tag>
-          </template>
-          <span v-else>-</span>
-        </el-descriptions-item>
       </el-descriptions>
     </el-card>
 
