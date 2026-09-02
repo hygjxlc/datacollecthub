@@ -13,6 +13,24 @@ const MANIFEST_HEADER = "目录,batch_no,device_no,device_model,station,license,
   "sensitivity,owner_contact,is_synthetic,operating_condition,weather,数据对应设备:状态类型\n";
 
 const state = {};
+let originalRuleTemplate = null;   // NORULE 用例结束时恢复生产原规则
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// 按编号规则模板渲染期望正则（{YYYY}/{DEVICE_NO}/{SEQ:n} 占位符）
+function expectedBatchNoPattern(template, deviceNo) {
+  const year = new Date().getFullYear();
+  const literal = template
+    .replace("{YYYY}", "\u0001")
+    .replace("{DEVICE_NO}", "\u0002")
+    .replace(/\{SEQ:(\d+)\}/g, (_, n) => "\u0003" + n + "\u0004");
+  return new RegExp("^" + escapeRegex(literal)
+    .replace("\u0001", String(year))
+    .replace("\u0002", deviceNo)
+    .replace(/\u0003(\d+)\u0004/g, (_, n) => `\\d{${n}}`) + "$");
+}
 
 async function login(page, username, password) {
   await page.goto("/login");
@@ -51,6 +69,14 @@ test.describe.serial("批次增强功能", () => {
     const autoNo = await page.locator("[name=batch_no]").isDisabled();
     if (!autoNo) await page.fill("[name=batch_no]", STATE_BATCH_NO);
     await page.fill("[name=device_no]", "F02");
+    // 扩展字段：用户自己添加多个自定义键值对（详情页应展示）
+    const extraRow = page.locator(".el-row", { has: page.locator("input[placeholder*='键名']") });
+    await page.getByRole("button", { name: "+ 添加扩展字段" }).click();
+    await page.getByRole("button", { name: "+ 添加扩展字段" }).click();
+    await extraRow.nth(0).locator("input").nth(0).fill("采集周期");
+    await extraRow.nth(0).locator("input").nth(1).fill("10min");
+    await extraRow.nth(1).locator("input").nth(0).fill("额定风速");
+    await extraRow.nth(1).locator("input").nth(1).fill("8m/s");
     await pickStateType(page, "光伏");
     await page.click("button:has-text('创建批次')");
     await expect(page.locator(".el-message--success", { hasText: "创建成功" })).toBeVisible();
@@ -64,8 +90,12 @@ test.describe.serial("批次增强功能", () => {
     const batch = await bResp.json();
     state.batchNo = batch.batch_no;
     expect(batch.equipment_state_type).toBe("光伏");
+    expect(batch.extras).toEqual({ "采集周期": "10min", "额定风速": "8m/s" });
     // 详情说明表出现状态类型「光伏」
     await expect(page.locator(".el-descriptions").getByText("光伏")).toBeVisible();
+    // 详情说明表展示用户添加的多个扩展字段
+    await expect(page.locator(".el-descriptions").getByText("采集周期: 10min")).toBeVisible();
+    await expect(page.locator(".el-descriptions").getByText("额定风速: 8m/s")).toBeVisible();
 
     // 2. 上传一个 .dat 文件（SCADA 模态）
     await page.click("button:has-text('上传文件')");
@@ -97,6 +127,14 @@ test.describe.serial("批次增强功能", () => {
   });
 
   test("TC-BATCH-NORULE：编号规则配置与自动编号只读", async ({ page, request }) => {
+    // 0. 记录生产原规则（管理员可能已配置），用例末尾恢复避免覆盖
+    const adminToken = await apiToken(request, "admin", "admin123");
+    const origResp = await request.get("/api/v1/batch-no-rule", {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    originalRuleTemplate = origResp.status() === 200
+      ? ((await origResp.json()).template || null) : null;
+
     // 1. admin 配置规则（重跑时覆盖保存，幂等）
     await login(page, "admin", "admin123");
     await page.goto("/admin/batch-no-rule");
@@ -130,9 +168,18 @@ test.describe.serial("批次增强功能", () => {
     // 3. 列表页出现自动编号批次
     await page.goto("/batches");
     await expect(page.locator(".el-table__body").getByText(state.autoBatchNo)).toBeVisible();
+
+    // 4. 恢复生产原规则（E2E 不覆盖管理员配置；原无规则时保留本用例配置）
+    if (originalRuleTemplate) {
+      const restoreResp = await request.put("/api/v1/admin/batch-no-rule", {
+        data: { template: originalRuleTemplate },
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(restoreResp.status()).toBe(200);
+    }
   });
 
-  test("TC-BATCH-IMP：批量导入成功（模板下载+zip 直传+异步导入）", async ({ page }) => {
+  test("TC-BATCH-IMP：批量导入成功（模板下载+zip 直传+异步导入）", async ({ page, request }) => {
     await login(page, "zhang", "pass123");
     await page.click("button:has-text('批量导入')");
     await page.waitForURL(/\/batch-imports$/);
@@ -165,9 +212,16 @@ test.describe.serial("批次增强功能", () => {
     await expect(progressCard.getByText("succeeded")).toBeVisible({ timeout: 60000 });
     await expect(page.locator(".el-table__body").getByText(/1 \/ 1 批次/).first()).toBeVisible();
 
-    // 4. 报告含自动生成的批次编号，批次列表出现该批次
+    // 4. 报告含自动生成的批次编号（按当前生效规则渲染期望），批次列表出现该批次
     const importNo = (await progressCard.locator(".el-tag--success").first().textContent()).trim();
-    expect(importNo).toMatch(/^B-\d{4}-\d{3}$/);
+    const zhangToken = await apiToken(request, "zhang", "pass123");
+    const ruleResp = await request.get("/api/v1/batch-no-rule", {
+      headers: { Authorization: `Bearer ${zhangToken}` },
+    });
+    const ruleTemplate = ruleResp.status() === 200
+      ? ((await ruleResp.json()).template || "B-{YYYY}-{SEQ:3}")
+      : "B-{YYYY}-{SEQ:3}";
+    expect(importNo).toMatch(expectedBatchNoPattern(ruleTemplate, "F03"));
     await page.goto("/batches");
     await expect(page.locator(".el-table__body").getByText(importNo)).toBeVisible();
   });
