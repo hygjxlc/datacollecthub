@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import api from "../api";
 import { useBatchStore } from "../stores/batch";
+import { useAuthStore } from "../stores/auth";
 import { MODALITY_LABELS } from "../stores/dict";
 import PermissionWrapper from "../components/common/PermissionWrapper.vue";
 import BatchForm from "../components/batch/BatchForm.vue";
@@ -37,7 +38,51 @@ async function loadLedger() {
 
 async function load() {
   await store.fetchDetail(batchId);
+  syncExtras();
   await Promise.allSettled([loadFiles(), loadLedger()]);
+}
+
+// 扩展字段：用户自己添加多个键值对（参考单批次表单交互）
+const auth = useAuthStore();
+const canEditExtras = computed(
+  () => auth.isAdmin || (!!batch.value?.creator_id && batch.value.creator_id === auth.user?.id)
+);
+let extrasSeq = 0;
+const extrasList = reactive([]);
+const savingExtras = ref(false);
+
+function syncExtras() {
+  extrasList.splice(0, extrasList.length,
+    ...Object.entries(batch.value?.extras || {}).map(([k, v]) => ({
+      id: extrasSeq++, key: k, value: String(v ?? ""),
+    })));
+}
+
+function addExtra() {
+  extrasList.push({ id: extrasSeq++, key: "", value: "" });
+}
+
+async function saveExtras() {
+  const extras = Object.create(null);
+  for (const row of extrasList) {
+    const k = (row.key || "").trim();
+    if (!k) continue;
+    if (Object.hasOwn(extras, k)) {
+      ElMessage.warning(`扩展字段键名重复：${k}`);
+      return;
+    }
+    extras[k] = row.value;
+  }
+  savingExtras.value = true;
+  try {
+    await api.put(`/batches/${batchId}`, {
+      extras: Object.keys(extras).length ? extras : null,
+    });
+    ElMessage.success("扩展字段已保存");
+    await load();
+  } finally {
+    savingExtras.value = false;
+  }
 }
 
 async function loadFiles() {
@@ -154,16 +199,28 @@ onMounted(load);
         <el-descriptions-item label="文件数 / 数据量">
           {{ batch.file_count }} 个文件
         </el-descriptions-item>
-        <el-descriptions-item label="扩展字段">
-          <template v-if="batch.extras && Object.keys(batch.extras).length">
-            <el-tag v-for="(v, k) in batch.extras" :key="k" size="small"
-                    type="warning" effect="plain" style="margin-right: 4px">
-              {{ k }}: {{ v }}
-            </el-tag>
-          </template>
-          <span v-else>-</span>
-        </el-descriptions-item>
       </el-descriptions>
+      <el-divider content-position="left">扩展字段</el-divider>
+      <div class="extras">
+        <el-row v-for="(row, i) in extrasList" :key="row.id" :gutter="8" class="extra-row">
+          <el-col :span="8">
+            <el-input v-model="row.key" placeholder="键名（如 采集周期）" :disabled="!canEditExtras" />
+          </el-col>
+          <el-col :span="14">
+            <el-input v-model="row.value" placeholder="值" :disabled="!canEditExtras" />
+          </el-col>
+          <el-col v-if="canEditExtras" :span="2">
+            <el-button text type="danger" @click="extrasList.splice(i, 1)">删除</el-button>
+          </el-col>
+        </el-row>
+        <div v-if="!extrasList.length" class="extra-empty">-</div>
+        <div v-if="canEditExtras" class="extra-actions">
+          <el-button link type="primary" @click="addExtra">+ 添加扩展字段</el-button>
+          <el-button type="primary" size="small" :loading="savingExtras" @click="saveExtras">
+            保存扩展字段
+          </el-button>
+        </div>
+      </div>
     </el-card>
 
     <el-card class="card">
@@ -198,5 +255,15 @@ onMounted(load);
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.extra-row {
+  margin-bottom: 8px;
+}
+.extra-empty {
+  color: #909399;
+  margin-bottom: 8px;
+}
+.extra-actions {
+  margin-top: 4px;
 }
 </style>

@@ -93,9 +93,26 @@ test.describe.serial("批次增强功能", () => {
     expect(batch.extras).toEqual({ "采集周期": "10min", "额定风速": "8m/s" });
     // 详情说明表出现状态类型「光伏」
     await expect(page.locator(".el-descriptions").getByText("光伏")).toBeVisible();
-    // 详情说明表展示用户添加的多个扩展字段
-    await expect(page.locator(".el-descriptions").getByText("采集周期: 10min")).toBeVisible();
-    await expect(page.locator(".el-descriptions").getByText("额定风速: 8m/s")).toBeVisible();
+    // 详情页扩展字段区回显用户添加的多个键值对（参考单批次表单交互）
+    await expect(page.locator(".extras input").nth(0)).toHaveValue("采集周期");
+    await expect(page.locator(".extras input").nth(1)).toHaveValue("10min");
+    await expect(page.locator(".extras input").nth(2)).toHaveValue("额定风速");
+    await expect(page.locator(".extras input").nth(3)).toHaveValue("8m/s");
+
+    // 1b. 详情页直接添加第三个扩展字段并保存（用户自己添加多个）
+    await page.getByRole("button", { name: "+ 添加扩展字段" }).click();
+    await page.locator(".extras input").nth(4).fill("叶片数量");
+    await page.locator(".extras input").nth(5).fill("3");
+    await page.getByRole("button", { name: "保存扩展字段" }).click();
+    await expect(page.locator(".el-message--success", { hasText: "扩展字段已保存" })).toBeVisible();
+    const b2Resp = await request.get(`/api/v1/batches/${state.batchId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(b2Resp.status()).toBe(200);
+    const batch2 = await b2Resp.json();
+    expect(batch2.extras).toEqual({
+      "采集周期": "10min", "额定风速": "8m/s", "叶片数量": "3",
+    });
 
     // 2. 上传一个 .dat 文件（SCADA 模态）
     await page.click("button:has-text('上传文件')");
