@@ -76,7 +76,7 @@ onUnmounted(stopPolling);
                    complete-url-template="/batch-imports/upload/{uploadId}/complete"
                    @file-uploaded="onFileUploaded" />
       <el-alert type="info" show-icon :closable="false" class="tip"
-                title="manifest.csv 字段：目录、batch_no（启用编号规则时留空）、device_no、license、sensitivity、is_synthetic、数据对应设备:状态类型为必填；其余选填；任意附加列将作为该批次扩展字段（extras）入库。" />
+                title="manifest.csv 字段：目录、batch_no（启用编号规则时留空）、device_no、license、sensitivity、is_synthetic、所属场站为必填；其余选填；运行工况为故障时必填 故障发生时间、事件描述；任意附加列将作为该批次扩展字段（extras）入库。" />
     </el-card>
 
     <el-card v-if="current" class="card">

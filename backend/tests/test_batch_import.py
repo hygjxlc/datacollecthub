@@ -6,7 +6,8 @@ from tests.conftest import auth
 
 RULE = {"template": "B-{YYYY}-{SEQ:3}"}
 MANIFEST = ("目录,batch_no,device_no,device_model,station,license,sensitivity,"
-            "owner_contact,is_synthetic,operating_condition,weather,数据对应设备:状态类型\r\n")
+            "owner_contact,is_synthetic,operating_condition,故障发生时间,事件描述,"
+            "weather,所属场站\r\n")
 
 
 def build_zip(rows, files):
@@ -19,8 +20,10 @@ def build_zip(rows, files):
     return buf.getvalue()
 
 
-ROW1 = ("F01_20250901,B2025-101,F01,金风 GW82/1500,wind,内部专用,内部,张工,0,正常,晴,风电")
-ROW2 = ("F02_20250901,B2025-102,F02,金风 GW82/1500,wind,内部专用,内部,张工,0,正常,晴,光伏")
+ROW1 = ("F01_20250901,B2025-101,F01,金风 GW82/1500,wind,内部专用,内部,张工,"
+        "0,正常,,,晴,风电")
+ROW2 = ("F02_20250901,B2025-102,F02,金风 GW82/1500,wind,内部专用,内部,张工,"
+        "0,正常,,,晴,光伏")
 
 
 def create_job(client, user_token, storage, zip_bytes):
@@ -44,10 +47,11 @@ def test_template_download(client, user_token):
     assert r.status_code == 200
     assert r.content.startswith(b"\xef\xbb\xbf")          # UTF-8 BOM
     text = r.content.decode("utf-8-sig")
-    assert "数据对应设备:状态类型" in text
+    assert "所属场站" in text
     rows = list(csv.DictReader(io.StringIO(text)))
     assert len(rows) == 1
-    assert rows[0]["数据对应设备:状态类型"] == "风电"
+    assert rows[0]["所属场站"] == "风电"
+    assert rows[0]["故障发生时间"] == ""
 
 
 def test_import_success(client, user_token, storage, db):
@@ -72,9 +76,8 @@ def test_import_success(client, user_token, storage, db):
 
 
 def test_import_additional_columns_to_extras(client, user_token, storage, db):
-    header = MANIFEST.replace("weather,数据对应设备:状态类型",
-                              "weather,数据对应设备:状态类型,采集周期")
-    row = ("F01_20250901,B2025-103,F01,,wind,内部专用,内部,,0,,,风电,10min")
+    header = MANIFEST.replace("weather,所属场站", "weather,所属场站,采集周期")
+    row = ("F01_20250901,B2025-103,F01,,wind,内部专用,内部,,0,,,,,风电,10min")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("manifest.csv", b"\xef\xbb\xbf" + (header + row).encode("utf-8"))
@@ -94,7 +97,7 @@ def test_import_additional_columns_to_extras(client, user_token, storage, db):
 
 def test_import_precheck_failure_all_or_nothing(client, user_token, storage, db):
     """第 2 行缺设备编号 → 预检失败，不创建任何批次。"""
-    bad = ("F02_20250901,B2025-102,,,wind,内部专用,内部,,0,,,光伏")
+    bad = ("F02_20250901,B2025-102,,,wind,内部专用,内部,,0,,,,,光伏")
     zip_bytes = build_zip([ROW1, bad],
                           {"F01_20250901/1.dat": b"data1", "F02_20250901/3.jpg": b"data3"})
     job = create_job(client, user_token, storage, zip_bytes)
@@ -129,6 +132,60 @@ def test_import_invalid_enum_error(client, user_token, storage):
     assert any("核电" in e for e in job["report"]["errors"])
 
 
+def test_import_fault_requires_fault_columns(client, user_token, storage):
+    """运行工况=故障 但缺事件描述 → 预检失败（全有或全无）。"""
+    bad = ROW1.replace("0,正常,,,晴,风电", "0,故障,2026-09-04 08:00:00,,晴,风电")
+    zip_bytes = build_zip([bad], {"F01_20250901/1.dat": b"data1"})
+    job = create_job(client, user_token, storage, zip_bytes)
+    assert job["status"] == "failed"
+    assert any("事件描述" in e for e in job["report"]["errors"])
+
+
+def test_import_fault_fields_persisted(client, user_token, storage, db):
+    """故障行填全时间+描述 → 入库。"""
+    row = ROW1.replace("0,正常,,,晴,风电",
+                       "0,故障,2026-09-04 08:00:00,齿轮箱轴承温度超限停机,晴,风电")
+    zip_bytes = build_zip([row], {"F01_20250901/1.dat": b"data1"})
+    job = create_job(client, user_token, storage, zip_bytes)
+    assert job["status"] == "succeeded", job["report"]
+    from app.models import Batch
+
+    b = db.query(Batch).filter_by(batch_no="B2025-101").one()
+    assert b.operating_condition == "故障"
+    assert b.fault_time == "2026-09-04 08:00:00"
+    assert b.fault_desc == "齿轮箱轴承温度超限停机"
+
+
+def test_import_invalid_condition_error(client, user_token, storage):
+    bad = ROW1.replace("0,正常,,,晴,风电", "0,停运,,,晴,风电")
+    zip_bytes = build_zip([bad], {"F01_20250901/1.dat": b"data1"})
+    job = create_job(client, user_token, storage, zip_bytes)
+    assert job["status"] == "failed"
+    assert any("运行工况非法" in e for e in job["report"]["errors"])
+
+
+def test_import_legacy_state_column_still_parsed(client, user_token, storage, db):
+    """旧模板列名“数据对应设备:状态类型”仍可解析（新列名兼容回退）。"""
+    header = MANIFEST.replace("weather,所属场站", "weather,数据对应设备:状态类型")
+    row = ROW1.replace("0,正常,,,晴,风电", "0,正常,,,晴,光伏")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("manifest.csv", b"\xef\xbb\xbf" + (header + row).encode("utf-8"))
+        zf.writestr("F01_20250901/1.dat", b"data1")
+    storage.objects["batch-imports/test/legacy.zip"] = buf.getvalue()
+    r = client.post("/api/v1/batch-imports",
+                    json={"object_key": "batch-imports/test/legacy.zip"},
+                    headers=auth(user_token))
+    job = client.get(f"/api/v1/batch-imports/{r.json()['id']}",
+                     headers=auth(user_token)).json()
+    assert job["status"] == "succeeded", job["report"]
+    from app.models import Batch
+
+    b = db.query(Batch).filter_by(batch_no="B2025-101").one()
+    assert b.equipment_state_type == "光伏"
+    assert b.extras is None          # 旧列名不落入 extras
+
+
 def test_import_missing_manifest(client, user_token, storage):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
@@ -145,7 +202,7 @@ def test_import_missing_manifest(client, user_token, storage):
 
 def test_import_batch_no_auto_when_rule_enabled(client, admin_token, user_token, storage, db):
     client.put("/api/v1/admin/batch-no-rule", json=RULE, headers=auth(admin_token))
-    row = ("F01_20250901,,F01,,wind,内部专用,内部,,0,,,风电")
+    row = ("F01_20250901,,F01,,wind,内部专用,内部,,0,,,,,风电")
     zip_bytes = build_zip([row], {"F01_20250901/1.dat": b"data1"})
     job = create_job(client, user_token, storage, zip_bytes)
     assert job["status"] == "succeeded", job["report"]

@@ -93,7 +93,7 @@ onMounted(load);
         <el-descriptions-item label="大小">{{ fmtSize(file.file_size) }}</el-descriptions-item>
         <el-descriptions-item label="批次编号">{{ file.batch_no || "-" }}</el-descriptions-item>
         <el-descriptions-item label="设备编号">{{ file.device_no || "-" }}</el-descriptions-item>
-        <el-descriptions-item label="所属场站">{{ file.station || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="场站名称">{{ file.station || "-" }}</el-descriptions-item>
         <el-descriptions-item label="object_key">{{ file.object_key }}</el-descriptions-item>
         <el-descriptions-item label="校验和">{{ file.checksum || "-" }}</el-descriptions-item>
         <el-descriptions-item label="上传状态">{{ file.upload_status }}</el-descriptions-item>

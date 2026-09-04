@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, ForeignKey, Integer, String
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -19,8 +19,10 @@ class Batch(Base):
     owner_contact: Mapped[str | None] = mapped_column(String(64))
     is_synthetic: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     operating_condition: Mapped[str | None] = mapped_column(String(256))
+    fault_time: Mapped[str | None] = mapped_column(String(32))   # 故障发生时间（运行工况=故障 必填）
+    fault_desc: Mapped[str | None] = mapped_column(Text)         # 事件描述（运行工况=故障 必填）
     weather: Mapped[str | None] = mapped_column(String(128))
-    equipment_state_type: Mapped[str | None] = mapped_column(String(16))  # 风电/火电/光伏
+    equipment_state_type: Mapped[str | None] = mapped_column(String(16))  # 风电/光伏/火电/其它
     extras: Mapped[dict | None] = mapped_column(JSON)              # 批次扩展键值对（自由扩充）
     organization_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("organization.id", ondelete="SET NULL"))

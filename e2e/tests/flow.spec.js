@@ -48,8 +48,8 @@ test.describe.serial("DataCollectHub 核心流程", () => {
     if (!autoNo) await page.fill("[name=batch_no]", BATCH_NO);
     await page.fill("[name=device_no]", "F01");
     await page.fill("[name=station]", "辉腾梁风电场");
-    // 选择 数据对应设备:状态类型（任务 1 新增必填）
-    await page.locator(".el-form-item", { hasText: "数据对应设备:状态类型" })
+    // 选择 所属场站（任务 1 新增必填，下拉 风电/光伏/火电/其它）
+    await page.locator(".el-form-item", { hasText: "所属场站" })
       .locator(".el-select").click();
     await page.locator(".el-select-dropdown__item:visible", { hasText: "风电" }).first().click();
     await page.click("button:has-text('创建批次')");

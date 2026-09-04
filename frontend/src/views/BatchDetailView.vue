@@ -172,7 +172,7 @@ onMounted(load);
             </el-tag>
           </el-tooltip>
         </el-descriptions-item>
-        <el-descriptions-item label="数据对应设备:状态类型">
+        <el-descriptions-item label="所属场站">
           {{ batch.equipment_state_type || "-" }}
         </el-descriptions-item>
         <el-descriptions-item label="涵盖模态数据">
@@ -184,7 +184,7 @@ onMounted(load);
           <span v-else>-</span>
         </el-descriptions-item>
         <el-descriptions-item label="设备型号">{{ batch.device_model || "-" }}</el-descriptions-item>
-        <el-descriptions-item label="所属场站">{{ batch.station || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="场站名称">{{ batch.station || "-" }}</el-descriptions-item>
         <el-descriptions-item label="许可证">{{ batch.license || "-" }}</el-descriptions-item>
         <el-descriptions-item label="敏感级别">{{ batch.sensitivity || "-" }}</el-descriptions-item>
         <el-descriptions-item label="负责人及联系方式">
@@ -195,6 +195,12 @@ onMounted(load);
         </el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ batch.created_at }}</el-descriptions-item>
         <el-descriptions-item label="运行工况">{{ batch.operating_condition || "-" }}</el-descriptions-item>
+        <el-descriptions-item v-if="batch.operating_condition === '故障'" label="故障发生时间">
+          {{ batch.fault_time || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item v-if="batch.operating_condition === '故障'" label="事件描述">
+          {{ batch.fault_desc || "-" }}
+        </el-descriptions-item>
         <el-descriptions-item label="天气条件">{{ batch.weather || "-" }}</el-descriptions-item>
         <el-descriptions-item label="文件数 / 数据量">
           {{ batch.file_count }} 个文件

@@ -10,7 +10,8 @@ const RUN_ID = String(Date.now()).slice(-8);
 const STATE_BATCH_NO = `B2026-E2E2-${RUN_ID}`;
 const FILE_BUFFER = Buffer.alloc(5 * 1024 * 1024, 0xab);
 const MANIFEST_HEADER = "目录,batch_no,device_no,device_model,station,license," +
-  "sensitivity,owner_contact,is_synthetic,operating_condition,weather,数据对应设备:状态类型\n";
+  "sensitivity,owner_contact,is_synthetic,operating_condition,故障发生时间,事件描述," +
+  "weather,所属场站\n";
 
 const state = {};
 let originalRuleTemplate = null;   // NORULE 用例结束时恢复生产原规则
@@ -53,9 +54,9 @@ async function apiToken(request, username, password) {
   return (await resp.json()).access_token;
 }
 
-// 选择 数据对应设备:状态类型 下拉（任务 1 新增必填）
+// 选择 所属场站 下拉（任务 1 新增必填；与“场站名称”文本项区分：label 精确命中）
 async function pickStateType(page, text) {
-  await page.locator(".el-form-item", { hasText: "数据对应设备:状态类型" })
+  await page.locator(".el-form-item", { hasText: "所属场站" })
     .locator(".el-select").click();
   await page.locator(".el-select-dropdown__item:visible", { hasText: text }).first().click();
 }
@@ -213,7 +214,7 @@ test.describe.serial("批次增强功能", () => {
     const zip = new JSZip();
     const dir = `E2E_IMP_${RUN_ID}`;
     zip.file("manifest.csv", "\uFEFF" + MANIFEST_HEADER +
-      `${dir},,F03,,wind,内部专用,内部,,0,正常,晴,风电\n`);
+      `${dir},,F03,,wind,内部专用,内部,,0,正常,,,晴,风电\n`);
     zip.file(`${dir}/imp1_${RUN_ID}.dat`, "import-payload");
     const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
 
@@ -253,7 +254,7 @@ test.describe.serial("批次增强功能", () => {
     const dir = `E2E_BAD_${RUN_ID}`;
     const badNo = `B2026-BAD-${RUN_ID}`;
     zip.file("manifest.csv",
-      "\uFEFF目录,batch_no,license,sensitivity,is_synthetic,数据对应设备:状态类型\n" +
+      "\uFEFF目录,batch_no,license,sensitivity,is_synthetic,所属场站\n" +
       `${dir},${badNo},内部专用,内部,0,风电\n`);
     zip.file(`${dir}/bad.dat`, "x");
     const zipBuf = await zip.generateAsync({ type: "nodebuffer" });
@@ -277,5 +278,75 @@ test.describe.serial("批次增强功能", () => {
     expect(listResp.status()).toBe(200);
     const items = (await listResp.json()).items;
     expect(items.some((b) => b.batch_no === badNo)).toBe(false);
+  });
+
+  test("TC-BATCH-FAULT：运行工况下拉与故障联动必填", async ({ page, request }) => {
+    // 1. 新建批次：默认运行工况=正常，故障输入区隐藏
+    await login(page, "zhang", "pass123");
+    await page.click("button:has-text('新建批次')");
+    await page.waitForURL(/\/batches\/new$/);
+    const autoNo = await page.locator("[name=batch_no]").isDisabled();
+    if (!autoNo) await page.fill("[name=batch_no]", `B2026-FLT-${RUN_ID}`);
+    await page.fill("[name=device_no]", "F06");
+    await pickStateType(page, "其它");           // 新枚举值端到端可选
+    const condItem = page.locator(".el-form-item", { hasText: "运行工况" });
+    await expect(condItem.locator(".el-select")).toContainText("正常");  // 默认正常
+    await expect(page.locator("[name=fault_time]")).toHaveCount(0);
+
+    // 2. 切为故障：出现 故障发生时间（时间组件）+ 事件描述
+    await condItem.locator(".el-select").click();
+    await page.locator(".el-select-dropdown__item:visible", { hasText: /^故障$/ })
+      .first().click();
+    await expect(page.locator("[name=fault_time]")).toBeVisible();
+    await expect(page.locator("[name=fault_desc]")).toBeVisible();
+
+    // 3. 缺故障发生时间直接提交 → 前端拦截提示，不跳转
+    await page.click("button:has-text('创建批次')");
+    await expect(page.locator(".el-message--warning",
+      { hasText: "故障发生时间" })).toBeVisible();
+
+    // 4. 时间组件选值 + 事件描述 → 创建成功
+    await page.locator("[name=fault_time]").fill("2026-09-04 08:30:00");
+    await page.locator("[name=fault_time]").press("Enter");
+    await page.locator("[name=fault_desc]").fill("齿轮箱轴承温度超限，触发报警停机");
+    await page.click("button:has-text('创建批次')");
+    await expect(page.locator(".el-message--success", { hasText: "创建成功" })).toBeVisible();
+    await page.waitForURL(/\/batches\/[0-9a-f-]+$/);
+    const batchId = page.url().split("/").pop();
+    const token = await apiToken(request, "zhang", "pass123");
+    const bResp = await request.get(`/api/v1/batches/${batchId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(bResp.status()).toBe(200);
+    const batch = await bResp.json();
+    expect(batch.equipment_state_type).toBe("其它");
+    expect(batch.operating_condition).toBe("故障");
+    expect(batch.fault_time).toBe("2026-09-04 08:30:00");
+    expect(batch.fault_desc).toBe("齿轮箱轴承温度超限，触发报警停机");
+
+    // 5. 详情说明表展示故障发生时间与事件描述
+    await expect(page.locator(".el-descriptions").getByText("故障发生时间")).toBeVisible();
+    await expect(page.locator(".el-descriptions")
+      .getByText("齿轮箱轴承温度超限，触发报警停机")).toBeVisible();
+
+    // 6. 编辑：工况切回检修 → 故障信息清空，详情不再展示故障行
+    await page.click("button:has-text('编辑')");
+    const dlg = page.locator(".el-dialog");
+    await expect(dlg).toBeVisible();
+    await dlg.locator(".el-form-item", { hasText: "运行工况" }).locator(".el-select").click();
+    await page.locator(".el-select-dropdown__item:visible", { hasText: /^检修$/ })
+      .first().click();
+    await dlg.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.locator(".el-message--success",
+      { hasText: "批次已更新" })).toBeVisible();
+    const b2Resp = await request.get(`/api/v1/batches/${batchId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const batch2 = await b2Resp.json();
+    expect(batch2.operating_condition).toBe("检修");
+    expect(batch2.fault_time).toBe(null);
+    expect(batch2.fault_desc).toBe(null);
+    await expect(page.locator(".el-descriptions")
+      .getByText("故障发生时间")).toHaveCount(0);
   });
 });

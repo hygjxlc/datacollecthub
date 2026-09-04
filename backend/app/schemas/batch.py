@@ -13,6 +13,8 @@ class BatchCreate(BaseModel):
     owner_contact: str | None = None
     is_synthetic: int = 0
     operating_condition: str | None = None
+    fault_time: str | None = None
+    fault_desc: str | None = None
     weather: str | None = None
     equipment_state_type: EquipmentStateType
     extras: dict | None = None
@@ -28,13 +30,15 @@ class BatchUpdate(BaseModel):
     owner_contact: str | None = None
     is_synthetic: int | None = None
     operating_condition: str | None = None
+    fault_time: str | None = None
+    fault_desc: str | None = None
     weather: str | None = None
     equipment_state_type: EquipmentStateType | None = None
     extras: dict | None = None
 
-    @field_validator("equipment_state_type", mode="before")
+    @field_validator("equipment_state_type", "fault_time", "fault_desc", mode="before")
     @classmethod
-    def _empty_state_to_none(cls, v):
+    def _empty_str_to_none(cls, v):
         return None if v == "" else v
 
 
@@ -51,6 +55,8 @@ class BatchOut(BaseModel):
     owner_contact: str | None = None
     is_synthetic: int
     operating_condition: str | None = None
+    fault_time: str | None = None
+    fault_desc: str | None = None
     weather: str | None = None
     equipment_state_type: str | None = None
     extras: dict | None = None

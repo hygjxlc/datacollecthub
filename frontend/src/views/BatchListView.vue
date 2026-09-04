@@ -54,7 +54,7 @@ onMounted(load);
     <el-table :data="store.list" border v-loading="loading">
       <el-table-column prop="batch_no" label="批次编号" min-width="130" />
       <el-table-column prop="device_no" label="设备/机组编号" width="130" />
-      <el-table-column prop="equipment_state_type" label="状态类型" width="90">
+      <el-table-column prop="equipment_state_type" label="所属场站" width="90">
         <template #default="{ row }">{{ row.equipment_state_type || "-" }}</template>
       </el-table-column>
       <el-table-column label="涵盖模态" min-width="150">
@@ -67,7 +67,7 @@ onMounted(load);
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="station" label="所属场站" min-width="110" show-overflow-tooltip />
+      <el-table-column prop="station" label="场站名称" min-width="110" show-overflow-tooltip />
       <el-table-column prop="file_count" label="文件数" width="80" align="right" />
       <el-table-column label="数据量" width="110" align="right">
         <template #default="{ row }">{{ fmtSize(row.total_size) }}</template>

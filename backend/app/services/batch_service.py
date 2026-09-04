@@ -13,7 +13,13 @@ from app.services.common import sort_modalities, utcnow
 
 _BATCH_FIELDS = ("batch_no", "device_no", "device_model", "station", "license",
                  "sensitivity", "owner_contact", "is_synthetic",
-                 "operating_condition", "weather", "equipment_state_type")
+                 "operating_condition", "fault_time", "fault_desc", "weather",
+                 "equipment_state_type")
+
+# 运行工况=故障 时的联动字段（中文列名同样禁止用作 extras 键，防语义重复）
+FAULT_CONDITION = "故障"
+FAULT_COLUMNS = {"故障发生时间", "事件描述"}
+_FAULT_TIMES_KEYS = frozenset({"fault_time", "fault_desc"} | FAULT_COLUMNS)
 
 _MAX_EXTRAS_KEYS = 20
 _MAX_EXTRAS_KEY_LEN = 64
@@ -41,7 +47,7 @@ def validate_extras(extras: dict | None) -> dict | None:
             raise unprocessable("扩展字段键名必须为非空字符串")
         if len(key) > _MAX_EXTRAS_KEY_LEN:
             raise unprocessable(f"扩展字段键名 {key} 超过 {_MAX_EXTRAS_KEY_LEN} 字符")
-        if key in _FIXED_BATCH_FIELDS:
+        if key in _FIXED_BATCH_FIELDS or key in _FAULT_TIMES_KEYS:
             raise unprocessable(f"扩展字段键 {key} 与固定字段重名")
         if key in cleaned:
             raise unprocessable(f"扩展字段键 {key} 重复")
@@ -51,6 +57,19 @@ def validate_extras(extras: dict | None) -> dict | None:
             raise unprocessable(f"扩展字段 {key} 的值仅支持字符串/数字/布尔/空值")
         cleaned[key] = value
     return cleaned if cleaned else None
+
+
+def normalize_fault_fields(condition, fault_time, fault_desc) -> tuple:
+    """故障联动归一：运行工况=故障 → 必填故障发生时间/事件描述；非故障 → 强制清空。"""
+    fault_time = (fault_time or "").strip() or None
+    fault_desc = (fault_desc or "").strip() or None
+    if (condition or "").strip() == FAULT_CONDITION:
+        if not fault_time:
+            raise unprocessable("运行工况为故障时必填故障发生时间")
+        if not fault_desc:
+            raise unprocessable("运行工况为故障时必填事件描述")
+        return fault_time, fault_desc
+    return None, None
 
 
 class BatchService:
@@ -115,6 +134,8 @@ class BatchService:
         from app.services.batch_no_service import BatchNoService
         rule = BatchNoService(self.db).get_rule()
         extras = validate_extras(body.extras)
+        fault_time, fault_desc = normalize_fault_fields(
+            body.operating_condition, body.fault_time, body.fault_desc)
         for _ in range(3):
             try:
                 batch_no = (BatchNoService(self.db).generate(rule.template, body.device_no)
@@ -127,6 +148,7 @@ class BatchService:
                               owner_contact=body.owner_contact,
                               is_synthetic=body.is_synthetic,
                               operating_condition=body.operating_condition,
+                              fault_time=fault_time, fault_desc=fault_desc,
                               weather=body.weather,
                               equipment_state_type=body.equipment_state_type,
                               extras=extras,
@@ -147,6 +169,14 @@ class BatchService:
         data = body.model_dump(exclude_unset=True)
         if "extras" in data:
             data["extras"] = validate_extras(data["extras"])
+        if any(k in data for k in ("operating_condition", "fault_time", "fault_desc")):
+            condition = data.get("operating_condition", batch.operating_condition)
+            # 故障联动：故障必填时间+描述；非故障一律清空故障字段（含存量脏数据）
+            ft, fd = normalize_fault_fields(
+                condition, data.get("fault_time", batch.fault_time),
+                data.get("fault_desc", batch.fault_desc))
+            data["fault_time"], data["fault_desc"] = ft, fd
+            data.setdefault("operating_condition", batch.operating_condition)
         changes = {}
         for field, value in data.items():
             old = getattr(batch, field)

@@ -25,18 +25,32 @@ from app.storage.minio import ObjectStorage
 
 FIXED_MANIFEST_COLUMNS = ["目录", "batch_no", "device_no", "device_model", "station",
                           "license", "sensitivity", "owner_contact", "is_synthetic",
-                          "operating_condition", "weather", "数据对应设备:状态类型"]
+                          "operating_condition", "故障发生时间", "事件描述", "weather",
+                          "所属场站"]
 REQUIRED_MANIFEST_COLUMNS = ["目录", "device_no", "license", "sensitivity",
-                             "is_synthetic", "数据对应设备:状态类型"]
+                             "is_synthetic", "所属场站"]
 LICENSE_VALUES = {"内部专用", "CC-BY", "MIT"}
 SENSITIVITY_VALUES = {"公开", "内部", "机密"}
-STATE_TYPE_VALUES = {"风电", "火电", "光伏"}
+STATE_TYPE_VALUES = {"风电", "光伏", "火电", "其它"}
+OPERATING_CONDITION_VALUES = {"正常", "故障", "检修"}
+# 旧模板兼容：字段由“数据对应设备:状态类型”更名为“所属场站”，旧列名仍可解析
+STATE_COLUMN = "所属场站"
+STATE_COLUMN_LEGACY = "数据对应设备:状态类型"
 SAMPLE_ROW = {"目录": "F01_20250901", "batch_no": "B2026-001", "device_no": "F01",
               "device_model": "金风 GW82/1500", "station": "辉腾梁风电场",
               "license": "内部专用", "sensitivity": "内部",
               "owner_contact": "张工 138****", "is_synthetic": "0",
-              "operating_condition": "正常", "weather": "晴",
-              "数据对应设备:状态类型": "风电"}
+              "operating_condition": "正常", "故障发生时间": "", "事件描述": "",
+              "weather": "晴", "所属场站": "风电"}
+
+
+def _col_value(row: dict, *names: str) -> str:
+    """按候选列名顺序取首个非空值（兼容更名前的旧列名）。"""
+    for n in names:
+        v = row.get(n)
+        if v:
+            return v
+    return ""
 
 
 def _zip_batch_dirs(zf: zipfile.ZipFile) -> tuple[set[str], dict[str, int]]:
@@ -122,10 +136,13 @@ class BatchImportService:
             return [], [], ["manifest.csv 必须为 UTF-8 编码"]
         reader = csv.DictReader(io.StringIO(text))
         fieldnames = reader.fieldnames or []
+        effective = [STATE_COLUMN if c == STATE_COLUMN_LEGACY else c for c in fieldnames]
         errors = [f"缺少必需列：{c}" for c in REQUIRED_MANIFEST_COLUMNS
-                  if c not in fieldnames]
+                  if c not in effective]
+        # 旧列名（数据对应设备:状态类型）已并入固定列集合，不视为附加列
         extra_columns = [c for c in fieldnames
-                         if c and c not in FIXED_MANIFEST_COLUMNS]
+                         if c and c not in FIXED_MANIFEST_COLUMNS
+                         and c != STATE_COLUMN_LEGACY]
         rows = []
         for line, raw in enumerate(reader, start=2):
             row = {k: (v or "").strip() for k, v in raw.items() if v is not None}
@@ -156,8 +173,28 @@ class BatchImportService:
                 errors.append(f"第 {line} 行：敏感级别非法（{row.get('sensitivity')}）")
             if row.get("is_synthetic") not in {"0", "1"}:
                 errors.append(f"第 {line} 行：是否合成/仿真数据须为 0/1")
-            if row.get("数据对应设备:状态类型") not in STATE_TYPE_VALUES:
-                errors.append(f"第 {line} 行：状态类型非法（{row.get('数据对应设备:状态类型')}）")
+            state = _col_value(row, STATE_COLUMN, STATE_COLUMN_LEGACY)
+            if state not in STATE_TYPE_VALUES:
+                errors.append(f"第 {line} 行：所属场站非法（{state}）")
+            # 新旧列名并存且值不一致 → 冲突，提示仅保留一列
+            if (row.get(STATE_COLUMN) and row.get(STATE_COLUMN_LEGACY)
+                    and row.get(STATE_COLUMN) != row.get(STATE_COLUMN_LEGACY)):
+                errors.append(f"第 {line} 行：{STATE_COLUMN} 与旧列名 "
+                              f"{STATE_COLUMN_LEGACY} 值冲突，请仅保留一列")
+            cond = row.get("operating_condition", "")
+            if cond and cond not in OPERATING_CONDITION_VALUES:
+                errors.append(
+                    f"第 {line} 行：运行工况非法（{cond}），仅支持 正常/故障/检修")
+            fault_time = _col_value(row, "故障发生时间")
+            fault_desc = _col_value(row, "事件描述")
+            if cond == "故障":
+                if not fault_time:
+                    errors.append(f"第 {line} 行：运行工况为故障时必填故障发生时间")
+                if not fault_desc:
+                    errors.append(f"第 {line} 行：运行工况为故障时必填事件描述")
+            elif fault_time or fault_desc:
+                errors.append(
+                    f"第 {line} 行：仅运行工况为故障时可填写故障发生时间/事件描述")
             batch_no = row.get("batch_no", "")
             if rule is None:
                 if not batch_no:
@@ -267,8 +304,11 @@ class BatchImportService:
                       owner_contact=row.get("owner_contact") or None,
                       is_synthetic=int(row.get("is_synthetic") or 0),
                       operating_condition=row.get("operating_condition") or None,
+                      fault_time=row.get("故障发生时间") or None,
+                      fault_desc=row.get("事件描述") or None,
                       weather=row.get("weather") or None,
-                      equipment_state_type=row.get("数据对应设备:状态类型"),
+                      equipment_state_type=_col_value(
+                          row, STATE_COLUMN, STATE_COLUMN_LEGACY),
                       extras=extras,
                       organization_id=job.organization_id, creator_id=job.creator_id,
                       created_at=now, updated_at=now)

@@ -18,6 +18,7 @@ class EquipmentStateType(str, enum.Enum):
     WIND = "风电"
     THERMAL = "火电"
     SOLAR = "光伏"
+    OTHER = "其它"
 
 
 class Role(str, enum.Enum):
