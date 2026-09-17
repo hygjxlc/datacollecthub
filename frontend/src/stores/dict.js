@@ -20,7 +20,9 @@ export const MODALITY_LABELS = Object.fromEntries(
 export const LICENSES = ["内部专用", "CC-BY", "MIT"];
 export const SENSITIVITIES = ["公开", "内部", "机密"];
 export const EQUIPMENT_STATE_TYPES = ["风电", "光伏", "火电", "其它"];
-export const OPERATING_CONDITION_TYPES = ["正常", "故障", "检修"];
+// 事件类型三态主轴（设计 §3.1 规则 1）：取代“运行工况”下拉（检修→维修）
+export const EVENT_TYPES = ["正常", "故障", "维修"];
+export const SEVERITY_VALUES = ["报警", "故障", "事故"];
 
 export const useDictStore = defineStore("dict", {
   state: () => ({

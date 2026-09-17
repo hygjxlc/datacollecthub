@@ -11,7 +11,15 @@ dist/
 # 本地数据与数据库（不入库）
 data/
 backend/*.db
+backend/*.db-shm
+backend/*.db-wal
 test_dch.db*
+
+# 部署临时镜像（docker save 产物，不入库）
+.deploy_tmp/
+
+# 临时调试脚本（不入库）
+backend/_final_clean.py
 
 # E2E 产物
 e2e/test-results/

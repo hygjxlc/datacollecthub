@@ -7,8 +7,10 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models import DataFile, User
-from app.schemas.batch import BatchCreate, BatchOut, BatchUpdate
+from app.schemas.batch import (BatchCreate, BatchOut, BatchUpdate, ModalConfigIn,
+                               ModalConfigOut)
 from app.services.batch_service import BatchService
+from app.services.modal_config_service import ModalConfigService
 from app.storage.exporter import build_excel
 
 router = APIRouter(prefix="/api/v1/batches", tags=["batches"])
@@ -43,6 +45,14 @@ def delete_batch(batch_id: str, user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     BatchService(db).delete_batch(batch_id, user)
     return {"status": "ok"}
+
+
+@router.put("/{batch_id}/modal-config", response_model=ModalConfigOut)
+def put_modal_config(batch_id: str, body: ModalConfigIn,
+                     user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """模态采集参数实例 upsert（§2.3/§3.3）：创建者/admin 可写，幂等覆盖。"""
+    return ModalConfigService(db).put_config(batch_id, body, user)
 
 
 @router.get("/{batch_id}/export")

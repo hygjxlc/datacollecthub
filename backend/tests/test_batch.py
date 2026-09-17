@@ -17,7 +17,7 @@ BATCH_PAYLOAD = {
 }
 
 
-def test_create_batch_ok(client, user_token):
+def test_create_batch_ok(client, user_token, nameplate):
     r = client.post("/api/v1/batches", json=BATCH_PAYLOAD, headers=auth(user_token))
     assert r.status_code == 200
     body = r.json()
@@ -26,7 +26,7 @@ def test_create_batch_ok(client, user_token):
     assert body["creator_id"] == "user-1"          # 创建者取自当前用户
 
 
-def test_create_duplicate_batch_no_422(client, user_token, batch):
+def test_create_duplicate_batch_no_422(client, user_token, batch, nameplate):
     r = client.post("/api/v1/batches", json=BATCH_PAYLOAD, headers=auth(user_token))
     assert r.status_code == 422
 
@@ -77,7 +77,7 @@ def test_update_writes_audit_field_changes(client, user_token, batch, db):
     assert log.username == "zhang"
 
 
-def test_create_writes_audit(client, user_token, db):
+def test_create_writes_audit(client, user_token, db, nameplate):
     from app.models import AuditLog
 
     client.post("/api/v1/batches", json=BATCH_PAYLOAD, headers=auth(user_token))

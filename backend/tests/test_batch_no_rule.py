@@ -27,7 +27,7 @@ def test_put_and_get_rule(client, admin_token, user_token):
     r2 = client.get("/api/v1/admin/batch-no-rule", headers=auth(admin_token))
     assert r2.json()["template"] == RULE["template"]
     r3 = client.get("/api/v1/batch-no-rule", headers=auth(user_token))
-    assert r3.json() == {"template": RULE["template"]}
+    assert r3.json() == {"template": RULE["template"], "evt_template": None}
 
 
 def test_put_rule_twice_updates_singleton(client, admin_token):
@@ -44,10 +44,10 @@ def test_put_rule_twice_updates_singleton(client, admin_token):
 
 def test_get_rule_unset_returns_null_template(client, user_token):
     r = client.get("/api/v1/batch-no-rule", headers=auth(user_token))
-    assert r.json() == {"template": None}
+    assert r.json() == {"template": None, "evt_template": None}
 
 
-def test_create_auto_generated_sequential(client, admin_token, user_token):
+def test_create_auto_generated_sequential(client, admin_token, user_token, nameplate):
     client.put("/api/v1/admin/batch-no-rule", json=RULE, headers=auth(admin_token))
     year = datetime.now(timezone.utc).year
     r1 = client.post("/api/v1/batches", json={"batch_no": "IGNORED", "device_no": "F01",
@@ -59,13 +59,13 @@ def test_create_auto_generated_sequential(client, admin_token, user_token):
     assert r2.json()["batch_no"] == f"B-{year}-002"
 
 
-def test_without_rule_batch_no_required_422(client, user_token):
+def test_without_rule_batch_no_required_422(client, user_token, nameplate):
     r = client.post("/api/v1/batches", json={"device_no": "F01", **STATE},
                     headers=auth(user_token))
     assert r.status_code == 422
 
 
-def test_seed_from_existing_batches(client, admin_token, user_token):
+def test_seed_from_existing_batches(client, admin_token, user_token, nameplate):
     """存量 B-2026-005 存在 → 启用规则后首个自动编号为 006。"""
     year = datetime.now(timezone.utc).year
     client.post("/api/v1/batches", json={"batch_no": f"B-{year}-005",
@@ -100,7 +100,8 @@ def test_seed_from_existing_escapes_like_wildcards(client, db):
     assert svc._seed_from_existing("B%2026_") == 3
 
 
-def test_device_no_placeholder_independent_seq(client, admin_token, user_token):
+def test_device_no_placeholder_independent_seq(client, admin_token, user_token,
+                                                nameplate, second_device):
     client.put("/api/v1/admin/batch-no-rule",
                json={"template": "{DEVICE_NO}-{YYYY}-{SEQ:2}"}, headers=auth(admin_token))
     r1 = client.post("/api/v1/batches", json={"device_no": "F01", **STATE},

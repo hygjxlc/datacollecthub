@@ -18,9 +18,17 @@ class Batch(Base):
     sensitivity: Mapped[str | None] = mapped_column(String(16))   # 公开/内部/机密
     owner_contact: Mapped[str | None] = mapped_column(String(64))
     is_synthetic: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    operating_condition: Mapped[str | None] = mapped_column(String(256))
-    fault_time: Mapped[str | None] = mapped_column(String(32))   # 故障发生时间（运行工况=故障 必填）
-    fault_desc: Mapped[str | None] = mapped_column(Text)         # 事件描述（运行工况=故障 必填）
+    operating_condition: Mapped[str | None] = mapped_column(String(256))  # 退役轴：仅兼容推断（不落库）
+    # 事件组化三态主轴（§3.1 规则 1-7）：event_type 必填三态，故障联动字典字段
+    event_type: Mapped[str] = mapped_column(String(16), nullable=False, default="正常")
+    fault_type: Mapped[str | None] = mapped_column(String(64))   # 故障类型字典 code（故障时缺省 UNCLASSIFIED）
+    severity: Mapped[str | None] = mapped_column(String(16))     # 报警/故障/事故（缺省取字典行默认）
+    t_start: Mapped[str | None] = mapped_column(String(32))      # 异常区间开始（成对可选）
+    t_end: Mapped[str | None] = mapped_column(String(32))        # 异常区间结束（成对可选）
+    event_status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    evt_id: Mapped[str | None] = mapped_column(String(64), unique=True)  # 事件组 ID：类型段×设备×年 001 起
+    fault_time: Mapped[str | None] = mapped_column(String(32))   # 故障发生时间（事件类型=故障 必填）
+    fault_desc: Mapped[str | None] = mapped_column(Text)         # 事件描述（故障必填；维修内容/正常基线说明）
     weather: Mapped[str | None] = mapped_column(String(128))
     equipment_state_type: Mapped[str | None] = mapped_column(String(16))  # 风电/光伏/火电/其它
     extras: Mapped[dict | None] = mapped_column(JSON)              # 批次扩展键值对（自由扩充）

@@ -13,6 +13,7 @@ import FileDetailView from "../views/FileDetailView.vue";
 import AdminOrgView from "../views/AdminOrgView.vue";
 import AdminUserView from "../views/AdminUserView.vue";
 import AdminBatchNoRuleView from "../views/AdminBatchNoRuleView.vue";
+import AdminDictDefView from "../views/AdminDictDefView.vue";
 import AuditView from "../views/AuditView.vue";
 import DeviceLedgerView from "../views/DeviceLedgerView.vue";
 import EventLedgerView from "../views/EventLedgerView.vue";
@@ -35,6 +36,7 @@ const routes = [
       { path: "admin/organizations", component: AdminOrgView, meta: { adminOnly: true } },
       { path: "admin/users", component: AdminUserView, meta: { adminOnly: true } },
       { path: "admin/batch-no-rule", component: AdminBatchNoRuleView, meta: { adminOnly: true } },
+      { path: "admin/dict-defs", component: AdminDictDefView, meta: { adminOnly: true } },
       { path: "audit", component: AuditView, meta: { adminOnly: true } },
       { path: "devices", component: DeviceLedgerView },
       { path: "events", component: EventLedgerView },

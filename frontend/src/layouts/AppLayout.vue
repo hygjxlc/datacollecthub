@@ -13,7 +13,7 @@ const activeMenu = computed(() => route.path);
 // 菜单按角色渲染：admin 才显示管理端入口（TC-AUTH-002）
 const menus = computed(() => {
   const items = [
-    { path: "/batches", label: "批次管理" },
+    { path: "/batches", label: "事件管理" },
     { path: "/files", label: "文件检索" },
     { path: "/devices", label: "设备台账" },
     { path: "/events", label: "事件记录" },
@@ -22,7 +22,8 @@ const menus = computed(() => {
     items.push(
       { path: "/admin/organizations", label: "单位管理" },
       { path: "/admin/users", label: "用户管理" },
-      { path: "/admin/batch-no-rule", label: "批次编号规则" },
+      { path: "/admin/batch-no-rule", label: "事件编码规则" },
+      { path: "/admin/dict-defs", label: "字典管理" },
       { path: "/audit", label: "审计日志" }
     );
   }

@@ -27,7 +27,7 @@ _FAKE_STORAGE = None   # client fixture 与 storage fixture 共享同一注入�
 def client():
     global _FAKE_STORAGE
     from app.main import app
-    from app.core.db import Base, engine
+    from app.core.db import Base, SessionLocal, engine
     from app.storage.minio import FakeStorage, get_storage
 
     Base.metadata.drop_all(engine)   # 每个测试重建
@@ -247,8 +247,26 @@ def other_org_batch(db):
 
 @pytest.fixture()
 def nameplate(db, org, user_zhang):
-    """F01 铭牌（org-1）。"""
-    from app.models import Nameplate
+    """F01 铭牌（org-1）。
+
+    Phase 1 申报基线：建批前先建台账（device_no 校验），并预插故障类型字典行
+    （normalize 故障分支依赖字典行取默认 severity/白名单；放 nameplate 而非
+    client，避免污染 test_dict_defs 的空字典前提）。
+    """
+    from app.models import FaultTypeDef, Nameplate
+
+    _BASE_FAULTS = [
+        # code, name, severity, is_active
+        ("UNCLASSIFIED", "待分类", "故障", 1),
+        ("GEARBOX_BEARING_WEAR", "齿轮箱-轴承-磨损", "故障", 1),
+        ("GENERATOR_BEARING_OVERTEMP", "发电机-轴承-过热", "报警", 1),
+        ("DISABLED_TEST_FAULT", "停用-测试故障", "故障", 0),
+    ]
+    for i, (code, name, severity, active) in enumerate(_BASE_FAULTS):
+        ts = utcnow()
+        db.add(FaultTypeDef(id=f"ft-{i}", code=code, name=name, severity=severity,
+                            is_active=active, sort_no=i, description=None,
+                            creator_id=None, created_at=ts, updated_at=ts))
 
     n = Nameplate(id="np-1", organization_id="org-1", device_no="F01",
                   device_model="金风 GW82/1500", rated_power=1500.0,
@@ -258,6 +276,19 @@ def nameplate(db, org, user_zhang):
                   commission_date="2015-06-30", design_life_years=20,
                   extras={"机型": "GW82/1500"},
                   creator_id="user-1", created_at=utcnow(), updated_at=utcnow())
+    db.add(n)
+    db.commit()
+    return n
+
+
+@pytest.fixture()
+def second_device(db, org, user_zhang):
+    """org-1 第二台设备 F02 铭牌（同单位多设备场景/独立计数）。"""
+    from app.models import Nameplate
+
+    n = Nameplate(id="np-3", organization_id="org-1", device_no="F02",
+                  device_model="金风 GW82/1500", creator_id="user-1",
+                  created_at=utcnow(), updated_at=utcnow())
     db.add(n)
     db.commit()
     return n
@@ -337,3 +368,45 @@ def other_org_event(db, other_org_batch):
     db.add(e)
     db.commit()
     return e
+
+
+@pytest.fixture()
+def modal_defs(db, org):
+    """模态参数 Schema 字典行（批次事件组化改造 §2.2 种子语义子集）。
+
+    Phase 2 申报基线：IR/VIB 含 required=1 键（emissivity/sample_rate_hz/channel_map）
+    支撑"红外批次缺 emissivity 422"与"模态参数待补"判定；含 required=2 条件必填行
+    （reflected_temp_c/distance_m——条件在 description，服务端不判定故不强制）与
+    enum 测试行（mic_pad_db）。独立 fixture（不挂 client/nameplate）——避免污染
+    test_dict_defs 的空字典前提（同 Phase 0 fault 行教训）。
+    """
+    from app.models import ModalParamDef
+
+    rows = [
+        # modality, param_key, label, unit, value_type, required, min, max, enum, desc
+        ("IR", "emissivity", "发射率", None, "float", 1, 0.05, 1.0, None, None),
+        ("IR", "ambient_temp_c", "环境温度", "℃", "float", 1, -40, 80, None, None),
+        ("IR", "reflected_temp_c", "反射温度", "℃", "float", 2, -40, 120, None,
+         "金属高反射面必填"),
+        ("IR", "rh_pct", "相对湿度", "%", "float", 1, 0, 100, None, None),
+        ("IR", "distance_m", "测温距离", "m", "float", 2, 0, 500, None, "影响大气透射"),
+        ("VIB", "sample_rate_hz", "采样率", "Hz", "int", 1, 1000, 1000000, None, None),
+        ("VIB", "channel_map", "通道接线映射", None, "json", 1, None, None, None, None),
+        ("VIB", "sensor_sensitivity", "灵敏度（换装覆盖）", "mV/g", "float", 2,
+         0.1, 100000, None, "仅换装时填"),
+        ("VIB", "range_max", "满量程", "g", "float", 0, None, None, None, "削顶判据"),
+        ("AUD", "recorder_model", "采集仪/麦克风型号", None, "str", 0, None, None,
+         None, None),
+        ("AUD", "noise_level_db", "环境噪声级", "dB", "float", 0, 0, 140, None, None),
+        ("AUD", "mic_pad_db", "麦克风衰减档位", "dB", "int", 0, None, None,
+         [-20, -10, 0], "测试专用 enum 行"),
+        ("VID", "camera_note", "拍摄位置/视角备注", None, "str", 0, None, None,
+         None, None),
+    ]
+    for i, (modality, key, label, unit, vtype, req, lo, hi, enum, desc) in enumerate(rows):
+        ts = utcnow()
+        db.add(ModalParamDef(id=f"mp-{i}", modality=modality, param_key=key,
+                             label=label, unit=unit, value_type=vtype, required=req,
+                             min_value=lo, max_value=hi, enum_values=enum,
+                             description=desc, sort_no=i, created_at=ts, updated_at=ts))
+    db.commit()

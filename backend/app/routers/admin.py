@@ -85,13 +85,14 @@ def list_audit_logs(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1,
 @router.get("/batch-no-rule", response_model=BatchNoRuleOut)
 def get_batch_no_rule(_: User = Depends(require_admin), db: Session = Depends(get_db)):
     rule = BatchNoService(db).get_rule()
-    return (BatchNoRuleOut(template=rule.template, updated_by=rule.updated_by,
-                           updated_at=rule.updated_at) if rule else BatchNoRuleOut())
+    return (BatchNoRuleOut(template=rule.template, evt_template=rule.evt_template,
+                           updated_by=rule.updated_by, updated_at=rule.updated_at)
+            if rule else BatchNoRuleOut())
 
 
 @router.put("/batch-no-rule", response_model=BatchNoRuleOut)
 def put_batch_no_rule(body: BatchNoRuleIn, user: User = Depends(require_admin),
                       db: Session = Depends(get_db)):
-    rule = BatchNoService(db).save_rule(body.template, user)
-    return BatchNoRuleOut(template=rule.template, updated_by=rule.updated_by,
-                          updated_at=rule.updated_at)
+    rule = BatchNoService(db).save_rule(body.template, user, body.evt_template)
+    return BatchNoRuleOut(template=rule.template, evt_template=rule.evt_template,
+                          updated_by=rule.updated_by, updated_at=rule.updated_at)

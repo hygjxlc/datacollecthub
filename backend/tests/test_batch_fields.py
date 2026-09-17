@@ -25,7 +25,7 @@ def test_create_batch_invalid_state_type_422(client, user_token):
                        headers=auth(user_token)).status_code == 422
 
 
-def test_create_batch_with_state_type_ok(client, user_token):
+def test_create_batch_with_state_type_ok(client, user_token, nameplate):
     r = client.post("/api/v1/batches", json=STATE_PAYLOAD, headers=auth(user_token))
     assert r.status_code == 200
     assert r.json()["equipment_state_type"] == "风电"
@@ -98,7 +98,7 @@ def test_export_excel_contains_state_type_column(client, user_token, batch):
     assert "数据对应设备:状态类型" not in headers
 
 
-def test_create_fault_batch_with_condition_fields_ok(client, user_token):
+def test_create_fault_batch_with_condition_fields_ok(client, user_token, nameplate):
     payload = {**STATE_PAYLOAD, "operating_condition": "故障",
                "fault_time": "2026-09-04 10:23:00",
                "fault_desc": "齿轮箱轴承温度超限停机"}
@@ -109,7 +109,7 @@ def test_create_fault_batch_with_condition_fields_ok(client, user_token):
     assert b["fault_desc"] == "齿轮箱轴承温度超限停机"
 
 
-def test_create_fault_batch_missing_fault_desc_422(client, user_token):
+def test_create_fault_batch_missing_fault_desc_422(client, user_token, nameplate):
     payload = {**STATE_PAYLOAD, "operating_condition": "故障",
                "fault_time": "2026-09-04 10:23:00"}
     r = client.post("/api/v1/batches", json=payload, headers=auth(user_token))
@@ -117,7 +117,7 @@ def test_create_fault_batch_missing_fault_desc_422(client, user_token):
     assert "事件描述" in r.text
 
 
-def test_create_fault_batch_missing_fault_time_422(client, user_token):
+def test_create_fault_batch_missing_fault_time_422(client, user_token, nameplate):
     payload = {**STATE_PAYLOAD, "operating_condition": "故障",
                "fault_desc": "轴承过热"}
     r = client.post("/api/v1/batches", json=payload, headers=auth(user_token))
@@ -125,16 +125,17 @@ def test_create_fault_batch_missing_fault_time_422(client, user_token):
     assert "故障发生时间" in r.text
 
 
-def test_create_non_fault_strips_fault_fields(client, user_token):
+def test_create_non_fault_clears_time_keeps_desc(client, user_token, nameplate):
+    """正常态：故障时间清空，事件描述保留作基线说明（§3.1 规则 4）。"""
     payload = {**STATE_PAYLOAD, "operating_condition": "正常",
                "fault_time": "2026-09-04 10:23:00", "fault_desc": "脏数据"}
     r = client.post("/api/v1/batches", json=payload, headers=auth(user_token))
     assert r.status_code == 200
     b = r.json()
-    assert b["fault_time"] is None and b["fault_desc"] is None
+    assert b["fault_time"] is None and b["fault_desc"] == "脏数据"
 
 
-def test_create_other_state_type_ok(client, user_token):
+def test_create_other_state_type_ok(client, user_token, nameplate):
     payload = {**STATE_PAYLOAD, "equipment_state_type": "其它"}
     r = client.post("/api/v1/batches", json=payload, headers=auth(user_token))
     assert r.status_code == 200
@@ -157,7 +158,9 @@ def test_update_fault_to_normal_clears_fault_fields(client, user_token, batch):
                    headers=auth(user_token))
     assert r.status_code == 200
     b = r.json()
-    assert b["fault_time"] is None and b["fault_desc"] is None
+    # 转正常：故障时间清空，事件描述保留作基线说明（§3.1 规则 4）
+    assert b["event_type"] == "正常"
+    assert b["fault_time"] is None and b["fault_desc"] == "轴承过热"
 
 
 def test_update_partial_other_field_keeps_fault_fields(client, user_token, batch):
@@ -169,7 +172,8 @@ def test_update_partial_other_field_keeps_fault_fields(client, user_token, batch
                    headers=auth(user_token))
     assert r.status_code == 200
     b = r.json()
-    assert b["operating_condition"] == "故障"
+    # 退役列仅推断不写：类型经 operating_condition 推断落 event_type，其余字段保持
+    assert b["event_type"] == "故障" and b["operating_condition"] is None
     assert b["fault_time"] == "2026-09-04 08:00:00"
     assert b["fault_desc"] == "轴承过热"
 

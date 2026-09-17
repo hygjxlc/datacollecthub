@@ -6,7 +6,7 @@ BASE = {
 }
 
 
-def test_create_batch_with_extras(client, user_token):
+def test_create_batch_with_extras(client, user_token, nameplate):
     r = client.post("/api/v1/batches", json={**BASE, "extras": {"采集周期": "10min"}},
                     headers=auth(user_token))
     assert r.status_code == 200

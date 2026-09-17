@@ -7,7 +7,7 @@ import { useBatchStore } from "../stores/batch";
 import { MODALITY_LABELS } from "../stores/dict";
 import PermissionWrapper from "../components/common/PermissionWrapper.vue";
 
-// 批次列表：文件数/数据量聚合（41ec700 后端补丁）+ 按归属渲染删除（TC-PERM-002）
+// 事件列表（=批次列表，批次=事件组存储对象）：文件数/数据量聚合（41ec700 后端补丁）+ 按归属渲染删除（TC-PERM-002）
 const store = useBatchStore();
 const router = useRouter();
 const page = ref(1);
@@ -44,7 +44,7 @@ onMounted(load);
 <template>
   <div class="page">
     <div class="toolbar">
-      <h3>批次管理</h3>
+      <h3>事件管理</h3>
       <div>
         <el-button @click="router.push('/batch-imports')">批量导入</el-button>
         <el-button type="primary" @click="router.push('/batches/new')">新建批次</el-button>

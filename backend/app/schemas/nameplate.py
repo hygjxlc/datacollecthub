@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict
 
 class NameplateCreate(BaseModel):
     device_no: str
+    organization_id: str | None = None   # 所属单位：仅管理员可指定（普通用户忽略，落本单位）
     device_model: str | None = None
     rated_power: float | None = None
     rated_wind_speed: float | None = None

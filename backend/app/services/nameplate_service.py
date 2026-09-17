@@ -59,12 +59,20 @@ class NameplateService:
         return self.db.execute(query).scalar_one_or_none() is not None
 
     def create(self, body: NameplateCreate, user) -> NameplateOut:
-        if self._conflict(user.organization_id, body.device_no):
+        # §2.6 执行补充：admin 可显式指定所属单位（校验存在），否则落 user 本单位
+        org_id = user.organization_id
+        if user.role == "admin" and body.organization_id:
+            org_id = body.organization_id
+            from app.models import Organization
+            if self.db.get(Organization, org_id) is None:
+                raise unprocessable("所属单位不存在")
+        if self._conflict(org_id, body.device_no):
             raise unprocessable("该设备铭牌已存在")
         now = utcnow()
-        obj = Nameplate(id=str(uuid.uuid4()), organization_id=user.organization_id,
-                        creator_id=user.id, created_at=now, updated_at=now,
-                        **body.model_dump())
+        data = body.model_dump()
+        data.pop("organization_id", None)
+        obj = Nameplate(id=str(uuid.uuid4()), organization_id=org_id,
+                        creator_id=user.id, created_at=now, updated_at=now, **data)
         self.db.add(obj)
         write_audit(self.db, user=user, action="create", entity_type="nameplate",
                     entity_id=obj.id)

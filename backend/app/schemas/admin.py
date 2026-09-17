@@ -75,9 +75,11 @@ class AuditLogOut(BaseModel):
 
 class BatchNoRuleIn(BaseModel):
     template: str
+    evt_template: str | None = None   # 事件编号模板：{TYPE_CODE} 类型段仅此模板可用
 
 
 class BatchNoRuleOut(BaseModel):
     template: str | None = None
+    evt_template: str | None = None
     updated_by: str | None = None
     updated_at: str | None = None

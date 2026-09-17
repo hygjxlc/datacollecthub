@@ -23,6 +23,18 @@ const exporting = ref(false);
 const batch = computed(() => store.current);
 
 const ledger = ref({ nameplate: null, points: [] });
+// 故障类型 code→中文名映射（展示用；字典失败时 code 兜底）
+const faultTypeNames = ref({});
+
+function eventTypeTag(t) {
+  return { 故障: "danger", 维修: "warning", 正常: "success" }[t] || "info";
+}
+function severityTag(s) {
+  return { 事故: "danger", 故障: "warning", 报警: "info" }[s] || "info";
+}
+function faultTypeName(code) {
+  return faultTypeNames.value[code] || "";
+}
 
 async function loadLedger() {
   if (!store.current?.device_no) return;
@@ -34,6 +46,11 @@ async function loadLedger() {
     const pd = await api.get(`/point-dicts?device_no=${encodeURIComponent(store.current.device_no)}`);
     ledger.value.points = pd.data.items;
   } catch { /* 测点字典查询失败不阻断（拦截器已提示） */ }
+  try {
+    const ft = await api.get("/fault-types");   // 激活行（含 UNCLASSIFIED 待分类）
+    faultTypeNames.value = Object.fromEntries(
+      (ft.data.items || []).map((f) => [f.code, f.name]));
+  } catch { /* 故障类型字典读取失败不阻断（code 兜底展示） */ }
 }
 
 async function load() {
@@ -194,12 +211,39 @@ onMounted(load);
           {{ batch.is_synthetic ? "是" : "否" }}
         </el-descriptions-item>
         <el-descriptions-item label="创建时间">{{ batch.created_at }}</el-descriptions-item>
-        <el-descriptions-item label="运行工况">{{ batch.operating_condition || "-" }}</el-descriptions-item>
-        <el-descriptions-item v-if="batch.operating_condition === '故障'" label="故障发生时间">
+        <el-descriptions-item label="事件类型">
+          <el-tag :type="eventTypeTag(batch.event_type)" size="small">
+            {{ batch.event_type || "-" }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="事件状态">
+          <el-tag :type="batch.event_status === 'confirmed' ? 'success' : 'info'" size="small">
+            {{ batch.event_status === "confirmed" ? "已确认（confirmed）" : "申报（draft）" }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="事件编号（EVT_ID）">
+          <el-tag v-if="batch.evt_id" type="success" size="small" class="evt-id">
+            {{ batch.evt_id }}
+          </el-tag>
+          <span v-else>-</span>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="batch.event_type === '故障'" label="故障类型">
+          <el-tooltip v-if="faultTypeName(batch.fault_type)" :content="faultTypeName(batch.fault_type)">
+            <el-tag type="danger" size="small">{{ batch.fault_type }}</el-tag>
+          </el-tooltip>
+          <el-tag v-else type="danger" size="small">
+            {{ batch.fault_type || "UNCLASSIFIED（待分类）" }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="batch.event_type === '故障'" label="严重度">
+          <el-tag :type="severityTag(batch.severity)" size="small">{{ batch.severity || "-" }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="batch.event_type === '故障'" label="事件时刻（申报）">
           {{ batch.fault_time || "-" }}
         </el-descriptions-item>
-        <el-descriptions-item v-if="batch.operating_condition === '故障'" label="事件描述">
-          {{ batch.fault_desc || "-" }}
+        <el-descriptions-item label="事件描述（申报）">{{ batch.fault_desc || "-" }}</el-descriptions-item>
+        <el-descriptions-item v-if="batch.t_start || batch.t_end" label="异常区间">
+          {{ batch.t_start }} ~ {{ batch.t_end }}
         </el-descriptions-item>
         <el-descriptions-item label="天气条件">{{ batch.weather || "-" }}</el-descriptions-item>
         <el-descriptions-item label="文件数 / 数据量">
@@ -271,5 +315,8 @@ onMounted(load);
 }
 .extra-actions {
   margin-top: 4px;
+}
+.evt-id {
+  font-family: Consolas, Monaco, monospace;
 }
 </style>

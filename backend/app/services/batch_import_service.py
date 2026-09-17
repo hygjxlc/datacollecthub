@@ -16,15 +16,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import not_found
-from app.models import Batch, BatchImport, DataFile
+from app.models import Batch, BatchImport, DataFile, FaultTypeDef
 from app.schemas.batch_import import BatchImportOut
 from app.services.audit import write_audit
+from app.services.batch_service import (CONDITION_MAP, EVENT_TYPES,
+                                        SEVERITY_VALUES)
 from app.services.common import utcnow
 from app.services.upload_service import infer_modality
 from app.storage.minio import ObjectStorage
 
 FIXED_MANIFEST_COLUMNS = ["目录", "batch_no", "device_no", "device_model", "station",
                           "license", "sensitivity", "owner_contact", "is_synthetic",
+                          "事件类型", "故障类型", "严重度", "异常开始", "异常结束",
                           "operating_condition", "故障发生时间", "事件描述", "weather",
                           "所属场站"]
 REQUIRED_MANIFEST_COLUMNS = ["目录", "device_no", "license", "sensitivity",
@@ -32,7 +35,7 @@ REQUIRED_MANIFEST_COLUMNS = ["目录", "device_no", "license", "sensitivity",
 LICENSE_VALUES = {"内部专用", "CC-BY", "MIT"}
 SENSITIVITY_VALUES = {"公开", "内部", "机密"}
 STATE_TYPE_VALUES = {"风电", "光伏", "火电", "其它"}
-OPERATING_CONDITION_VALUES = {"正常", "故障", "检修"}
+OPERATING_CONDITION_VALUES = {"正常", "故障", "检修"}   # 退役轴兼容推断源
 # 旧模板兼容：字段由“数据对应设备:状态类型”更名为“所属场站”，旧列名仍可解析
 STATE_COLUMN = "所属场站"
 STATE_COLUMN_LEGACY = "数据对应设备:状态类型"
@@ -40,7 +43,9 @@ SAMPLE_ROW = {"目录": "F01_20250901", "batch_no": "B2026-001", "device_no": "F
               "device_model": "金风 GW82/1500", "station": "辉腾梁风电场",
               "license": "内部专用", "sensitivity": "内部",
               "owner_contact": "张工 138****", "is_synthetic": "0",
-              "operating_condition": "正常", "故障发生时间": "", "事件描述": "",
+              "事件类型": "正常", "故障类型": "", "严重度": "",
+              "异常开始": "", "异常结束": "",
+              "operating_condition": "", "故障发生时间": "", "事件描述": "",
               "weather": "晴", "所属场站": "风电"}
 
 
@@ -185,16 +190,38 @@ class BatchImportService:
             if cond and cond not in OPERATING_CONDITION_VALUES:
                 errors.append(
                     f"第 {line} 行：运行工况非法（{cond}），仅支持 正常/故障/检修")
+            event_type = row.get("事件类型", "")
+            if event_type and event_type not in EVENT_TYPES:
+                errors.append(
+                    f"第 {line} 行：事件类型非法（{event_type}），仅支持 正常/故障/维修")
+            # 显式 event_type 优先；缺失按 operating_condition 推断（§3.1 兼容）
+            eff_type = event_type or CONDITION_MAP.get(cond, "正常")
             fault_time = _col_value(row, "故障发生时间")
             fault_desc = _col_value(row, "事件描述")
-            if cond == "故障":
+            if eff_type == "故障":
                 if not fault_time:
-                    errors.append(f"第 {line} 行：运行工况为故障时必填故障发生时间")
+                    errors.append(f"第 {line} 行：事件类型为故障时必填故障发生时间")
                 if not fault_desc:
-                    errors.append(f"第 {line} 行：运行工况为故障时必填事件描述")
-            elif fault_time or fault_desc:
-                errors.append(
-                    f"第 {line} 行：仅运行工况为故障时可填写故障发生时间/事件描述")
+                    errors.append(f"第 {line} 行：事件类型为故障时必填事件描述")
+            elif fault_time:
+                errors.append(f"第 {line} 行：仅故障时可填写故障发生时间")
+            fault_type = row.get("故障类型", "")
+            if fault_type:
+                ft_row = self.db.execute(select(FaultTypeDef).where(
+                    FaultTypeDef.code == fault_type)).scalar_one_or_none()
+                if ft_row is None:
+                    errors.append(f"第 {line} 行：故障类型 {fault_type} 不存在，请联系管理员添加")
+                elif not ft_row.is_active:
+                    errors.append(f"第 {line} 行：故障类型 {fault_type} 已停用")
+            severity = row.get("严重度", "")
+            if severity and severity not in SEVERITY_VALUES:
+                errors.append(f"第 {line} 行：严重度非法（{severity}），仅支持 报警/故障/事故")
+            t_start = row.get("异常开始", "")
+            t_end = row.get("异常结束", "")
+            if (t_start == "") != (t_end == ""):
+                errors.append(f"第 {line} 行：异常区间开始/结束时间须成对填写")
+            elif t_start and t_start > t_end:
+                errors.append(f"第 {line} 行：异常区间开始时间不能晚于结束时间")
             batch_no = row.get("batch_no", "")
             if rule is None:
                 if not batch_no:
@@ -283,9 +310,18 @@ class BatchImportService:
             storage.delete_object(job.object_key)      # 完成后删除 zip 临时对象
 
     def _import_one(self, zf, row, extra_columns, job, storage, report) -> None:
+        from app.models import User
         from app.services.batch_no_service import BatchNoService
+        from app.services.batch_service import (assert_device_in_ledger,
+                                                evt_type_code,
+                                                normalize_event_fields)
 
         dir_name = row["目录"]
+        # 行级台账校验（§3.5）：失败计入行报告，不阻断其它行
+        creator = self.db.get(User, job.creator_id)
+        assert_device_in_ledger(self.db, row["device_no"],
+                                organization_id=job.organization_id,
+                                include_all=bool(creator and creator.role == "admin"))
         rule = BatchNoService(self.db).get_rule()
         if rule is not None:
             batch_no = BatchNoService(self.db).generate(rule.template, row["device_no"])
@@ -295,6 +331,15 @@ class BatchImportService:
                     Batch.batch_no == batch_no)).scalar_one_or_none():
                 report["skipped"].append(f"{batch_no}（已存在，跳过）")
                 return
+        norm = normalize_event_fields(
+            self.db, event_type=row.get("事件类型"),
+            condition=row.get("operating_condition"),
+            fault_type=row.get("故障类型"), severity=row.get("严重度"),
+            fault_time=row.get("故障发生时间"), fault_desc=row.get("事件描述"),
+            t_start=row.get("异常开始"), t_end=row.get("异常结束"))
+        evt_id = BatchNoService(self.db).generate_evt(
+            rule.evt_template if rule else None, row["device_no"],
+            evt_type_code(norm["event_type"], norm["fault_type"]))
         extras = {c: row.get(c) for c in extra_columns if row.get(c) != ""} or None
         now = utcnow()
         batch = Batch(id=str(uuid.uuid4()), batch_no=batch_no,
@@ -303,9 +348,12 @@ class BatchImportService:
                       sensitivity=row.get("sensitivity"),
                       owner_contact=row.get("owner_contact") or None,
                       is_synthetic=int(row.get("is_synthetic") or 0),
-                      operating_condition=row.get("operating_condition") or None,
-                      fault_time=row.get("故障发生时间") or None,
-                      fault_desc=row.get("事件描述") or None,
+                      operating_condition=None,      # 退役列：仅推断不写
+                      event_type=norm["event_type"], fault_type=norm["fault_type"],
+                      severity=norm["severity"],
+                      t_start=norm["t_start"], t_end=norm["t_end"],
+                      event_status=norm["event_status"], evt_id=evt_id,
+                      fault_time=norm["fault_time"], fault_desc=norm["fault_desc"],
                       weather=row.get("weather") or None,
                       equipment_state_type=_col_value(
                           row, STATE_COLUMN, STATE_COLUMN_LEGACY),
